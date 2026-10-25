@@ -13,7 +13,7 @@ Comandos do Railway (rodar na pasta do projeto):
 | Para | Comando |
 |---|---|
 | Ver a saúde (linha `[sala …]` a cada 30 s) | `railway logs --service sala` |
-| Reiniciar sem perder nada (o estado fica no volume) | `railway restart --service sala -y` |
+| Reiniciar sem perder nada (o estado fica no volume; testado às 13:45) | `railway redeploy --service sala -y` |
 | Começar do zero uma única vez | `railway variable set CLEAN_LIVE_ID=<valor novo> --service sala` (reinicia sozinho com `--clean-live`; reinícios seguintes não limpam) |
 | Mudar o modo (ex.: ensaio) | `railway variable set "SALA_ARGS=--mode mock --scenario swing2022 --speed 20" --service sala` (`--mode live` volta para o real) |
 | Subir código novo | `sh cloud/deploy_sala.sh "mensagem"` (leva junto a base do 1T, que não está no git) |
@@ -34,7 +34,7 @@ Comandos do Railway (rodar na pasta do projeto):
 | 09:00 | Atualizar os locais de votação (o TSE pode ter regerado o arquivo) e reconstruir a base | `uv run python -m etl.build_base --refresh-locais` e depois `uv run python site/tools/export_base.py` |
 | 10:00 | **Ensaio final** no simulador, ordem real | `uv run python sala.py --mode mock --scenario swing2022 --speed 20` → abrir http://127.0.0.1:8000 |
 | 10:40 | Ensaio com **outra ordem** de chegada | `uv run python sala.py --mode mock --scenario flavio --order nordeste-first --speed 30` |
-| 14:00 | Railway passa do ensaio para o real (já limpo; não precisa mexer às 16:30) | feito pelo Claude: `SALA_ARGS=--mode live`, `CLEAN_LIVE_ID=live-1400` |
+| 13:40 | Railway passou do ensaio (ok, sem reinícios, ~2 GB) para o real, já limpo; não precisa mexer às 16:30 | feito pelo Claude: `SALA_ARGS=--mode live`, `CLEAN_LIVE_ID=live-1340` |
 | 16:30 | **Ligar para valer** no Mac (limpa os arquivos do ensaio e arquiva o estado de testes do coletor em `data/live/old/`) | `uv run python sala.py --mode live --clean-live` |
 | 16:35 | Abrir a tela em tela cheia na TV | https://apuracao-2turno.up.railway.app/#tv=1 (reserva: espelho do Mac ou http://127.0.0.1:8000 no próprio Mac), F11 / ⌃⌘F |
 | 17:00–17:15 | Primeiros números: conferir os selos de frescor e comparar o placar com o app oficial do TSE | app oficial: https://resultados.tse.jus.br/oficial/app/index.html (eleição 6258, Presidente) |
@@ -58,7 +58,7 @@ Comandos do Railway (rodar na pasta do projeto):
 | Selo "Coletor OK há…" passa de 2 min | Coletor caiu ou travou | O `sala.py` reinicia sozinho. Se persistir, ver `data/live/logs/collector.log` |
 | Erros 403/429 no log | Bloqueio do TSE | Os boletins pausam sozinhos por 10 min. Se os **agregados** também derem 403: trocar para o hotspot do celular. Se ainda assim falhar, reiniciar só com agregados: `uv run python sala.py --mode live --no-bu` |
 | Rede caiu | Wi-Fi/roteador | O coletor retoma sozinho quando a rede volta, sem baixar de novo o que já tem |
-| Link do Railway fora do ar ou com "Coletor atrasado" | Railway ou o contêiner | `railway logs --service sala`; se travado, `railway restart --service sala -y` (retoma do volume). Enquanto isso, TV e amigos no espelho do Mac |
+| Link do Railway fora do ar ou com "Coletor atrasado" | Railway ou o contêiner | `railway logs --service sala`; se travado, `railway redeploy --service sala -y` (retoma do volume). Enquanto isso, TV e amigos no espelho do Mac |
 | Espelho online parado (linha do `sala.py` mostra `online … erro` ou "ok há" alto) | Rede do Mac ou Railway | A tela local não depende dele. O envio tenta de novo sozinho; log em `data/live/logs/cloud.log`. Se o Railway reiniciar, o Mac reenvia tudo (~15 MB) sozinho |
 | Tela travada ou lenta | Navegador | Recarregar (⌘R); ela recarrega sozinha a cada 45 min. Reserva leve: http://127.0.0.1:8000/numeros.html |
 | Mac reiniciou, ou o terminal do `sala.py` foi fechado/morto | Atualização, energia, engano | `uv run python sala.py --mode live` (**sem** `--clean-live`). Ele encerra sozinho a execução anterior, seja o supervisor ainda vivo (inclusive um aberto pelo Claude) ou os processos órfãos. O coletor e a análise retomam de onde pararam |
