@@ -50,14 +50,17 @@ export function fAge(sec) {
 
 // ---------- candidatos ----------
 export const PRESETS = {
+  partido: { dark: ['#e5484d', '#3987e5'], light: ['#d13438', '#2a78d6'] },
   hub: { dark: ['#3987e5', '#d9731f'], light: ['#2a78d6', '#d9731f'] },
   neutral: { dark: ['#8a7cf7', '#c98500'], light: ['#6a5ae0', '#b27600'] },
 };
 export function loadPrefs() {
   let p = {};
   try { p = JSON.parse(localStorage.getItem('apur2t-site') || '{}') || {}; } catch { p = {}; }
+  // Cores salvas com o padrão antigo (azul × laranja) migram para o padrão atual (vermelho × azul).
+  if (p.cand?.A?.color === '#3987e5' && p.cand?.B?.color === '#d9731f') delete p.cand;
   return {
-    cand: p.cand || { A: { name: 'Lula', short: 'Lula', num: '13', color: '#3987e5' }, B: { name: 'Flávio Bolsonaro', short: 'Flávio', num: '22', color: '#d9731f' } },
+    cand: p.cand || { A: { name: 'Lula', short: 'Lula', num: '13', color: '#e5484d' }, B: { name: 'Flávio Bolsonaro', short: 'Flávio', num: '22', color: '#3987e5' } },
     theme: p.theme || 'dark', fade: p.fade ?? true, resOff: p.resOff ?? 0,
   };
 }
