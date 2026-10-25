@@ -18,7 +18,7 @@ Pasta do projeto: `~/Projects/apuracao-2-turno`. Todos os comandos rodam a parti
 | 10:00 | **Ensaio final** no simulador, ordem real | `uv run python sala.py --mode mock --scenario swing2022 --speed 20` → abrir http://127.0.0.1:8000 |
 | 10:40 | Ensaio com **outra ordem** de chegada | `uv run python sala.py --mode mock --scenario flavio --order nordeste-first --speed 30` |
 | 16:30 | **Ligar para valer** (limpa os arquivos do ensaio e arquiva o estado de testes do coletor em `data/live/old/`) | `uv run python sala.py --mode live --clean-live` |
-| 16:35 | Abrir a tela em tela cheia na TV | Chrome em http://127.0.0.1:8000, Modo TV ligado, F11 / ⌃⌘F |
+| 16:35 | Abrir a tela em tela cheia na TV | Chrome em http://127.0.0.1:8000, Modo TV ligado, F11 / ⌃⌘F. Na TV ou para amigos: espelho online https://espelho-production-7395.up.railway.app/#tv=1 |
 | 17:00–17:15 | Primeiros números: conferir os selos de frescor e comparar o placar com o app oficial do TSE | app oficial: https://resultados.tse.jus.br/oficial/app/index.html (eleição 6258, Presidente) |
 | 17:05 | Ver se o TSE marca quais urnas têm boletim (estratégia A); senão o coletor segue sozinho na B | `uv run python -m collector cs-check --ufs sp,pe,rr` |
 | a noite toda | Acompanhar o terminal do `sala.py`, que imprime a saúde a cada 30 s | linha `[sala HH:MM:SS] …` |
@@ -40,6 +40,7 @@ Pasta do projeto: `~/Projects/apuracao-2-turno`. Todos os comandos rodam a parti
 | Selo "Coletor OK há…" passa de 2 min | Coletor caiu ou travou | O `sala.py` reinicia sozinho. Se persistir, ver `data/live/logs/collector.log` |
 | Erros 403/429 no log | Bloqueio do TSE | Os boletins pausam sozinhos por 10 min. Se os **agregados** também derem 403: trocar para o hotspot do celular. Se ainda assim falhar, reiniciar só com agregados: `uv run python sala.py --mode live --no-bu` |
 | Rede caiu | Wi-Fi/roteador | O coletor retoma sozinho quando a rede volta, sem baixar de novo o que já tem |
+| Espelho online parado (linha do `sala.py` mostra `online … erro` ou "ok há" alto) | Rede do Mac ou Railway | A tela local não depende dele. O envio tenta de novo sozinho; log em `data/live/logs/cloud.log`. Se o Railway reiniciar, o Mac reenvia tudo (~15 MB) sozinho |
 | Tela travada ou lenta | Navegador | Recarregar (⌘R); ela recarrega sozinha a cada 45 min. Reserva leve: http://127.0.0.1:8000/numeros.html |
 | Mac reiniciou, ou o terminal do `sala.py` foi fechado/morto | Atualização, energia, engano | `uv run python sala.py --mode live` (**sem** `--clean-live`). Ele encerra sozinho a execução anterior, seja o supervisor ainda vivo (inclusive um aberto pelo Claude) ou os processos órfãos. O coletor e a análise retomam de onde pararam |
 
