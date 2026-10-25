@@ -29,6 +29,8 @@ Comandos do Railway (rodar na pasta do projeto):
 
 ## Linha do tempo
 
+> **Votação prorrogada até as 19h em todo o país** (decisão do STF, divulgada por volta das 17h). O TSE suspendeu a divulgação: o parcial de 0,2% (carimbo 17:06) fica parado até lá, e a tela mostra isso como aviso neutro. O horário fica em `FIM_VOTACAO` (`site/js/fmt.js`).
+
 | Hora | O que fazer | Comando / onde olhar |
 |---|---|---|
 | 09:00 | Atualizar os locais de votação (o TSE pode ter regerado o arquivo) e reconstruir a base | `uv run python -m etl.build_base --refresh-locais` e depois `uv run python site/tools/export_base.py` |
@@ -37,8 +39,8 @@ Comandos do Railway (rodar na pasta do projeto):
 | 13:40 | Railway passou do ensaio (ok, sem reinícios, ~2 GB) para o real, já limpo; não precisa mexer às 16:30 | feito pelo Claude: `SALA_ARGS=--mode live`, `CLEAN_LIVE_ID=live-1340` |
 | 16:30 | **Ligar para valer** no Mac (limpa os arquivos do ensaio e arquiva o estado de testes do coletor em `data/live/old/`) | `uv run python sala.py --mode live --clean-live` |
 | 16:35 | Abrir a tela em tela cheia na TV | https://apuracao-2turno.up.railway.app/#tv=1 (reserva: espelho do Mac ou http://127.0.0.1:8000 no próprio Mac), F11 / ⌃⌘F |
-| 17:00–17:15 | Primeiros números: conferir os selos de frescor e comparar o placar com o app oficial do TSE | app oficial: https://resultados.tse.jus.br/oficial/app/index.html (eleição 6258, Presidente) |
-| 17:05 | Ver se o TSE marca quais urnas têm boletim (estratégia A); senão o coletor segue sozinho na B | `uv run python -m collector cs-check --ufs sp,pe,rr` |
+| 19:00–19:15 | Primeiros números (depois da prorrogação): conferir os selos de frescor e comparar o placar com o app oficial do TSE | app oficial: https://resultados.tse.jus.br/oficial/app/index.html (eleição 6258, Presidente) |
+| 19:05 | Ver se o TSE marca quais urnas têm boletim (estratégia A); senão o coletor segue sozinho na B | `uv run python -m collector cs-check --ufs sp,pe,rr` |
 | a noite toda | Acompanhar o terminal do `sala.py`, que imprime a saúde a cada 30 s | linha `[sala HH:MM:SS] …` |
 
 ## Como ler a tela (o que é confiável quando)
