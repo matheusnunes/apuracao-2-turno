@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Prévia TV 1920×1080</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  iframe { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; border: 0; transform-origin: 0 0; }
+</style>
+</head>
+<body>
+<!-- Ferramenta de desenvolvimento: mostra a tela num iframe de 1920×1080 escalado para caber na janela.
+     Uso: http://127.0.0.1:8000/tools/tv1080.html?src=../%3Flive%3Ddata/live-fake/ (src = URL relativa da tela) -->
+<iframe id="f" title="tela"></iframe>
+<script>
+  const q = new URLSearchParams(location.search);
+  const src = q.get('src') || '../';
+  const f = document.getElementById('f');
+  f.src = /^(\.\.\/|\/)/.test(src) ? src : '../';
+  const fit = () => { const s = Math.min(innerWidth / 1920, innerHeight / 1080); f.style.transform = `scale(${s})`; };
+  addEventListener('resize', fit); fit();
+</script>
+</body>
+</html>

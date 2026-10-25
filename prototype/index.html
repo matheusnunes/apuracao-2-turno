@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apuração 2º turno</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="stylesheet" href="style.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/h3-js@4.1.0/dist/h3-js.umd.js"></script>
+<script src="https://unpkg.com/deck.gl@9.0.38/dist.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-delaunay@6.0.4/dist/d3-delaunay.min.js"></script>
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <div class="brand">
+      <div class="brand-title">Apuração · 2º turno · Presidente</div>
+      <div class="brand-sub"><span class="badge-sim">SIMULAÇÃO · dados sintéticos</span> <span id="clock">Dom 25/10 · 17:00 BRT</span></div>
+    </div>
+    <div class="placar" id="placar" title="Placar oficial das seções já totalizadas. Sul e Sudeste apuram primeiro, então o placar bruto engana no início da noite."></div>
+    <div class="progress" id="progress"></div>
+    <div class="fresh" id="fresh"></div>
+    <div class="top-ctrls">
+      <button id="btnTv" class="chip tv on" aria-pressed="true" title="Modo TV: ciclo automático de vistas">▶ Modo TV</button>
+      <button id="btnPlay" class="icon-btn" title="Pausar / continuar a simulação" aria-label="Pausar simulação">❚❚</button>
+      <select id="selSpeed" title="Velocidade da simulação" aria-label="Velocidade">
+        <option value="0.5">0,5 min/s</option><option value="1" selected>1 min/s</option><option value="2">2 min/s</option><option value="5">5 min/s</option>
+      </select>
+      <input id="scrub" type="range" min="0" max="420" step="1" value="0" title="Arraste para ir a outro horário da noite" aria-label="Horário simulado">
+      <button id="btnSettings" class="icon-btn" title="Ajustes" aria-label="Ajustes">⚙</button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section id="left" aria-label="Brasil"></section>
+
+    <section id="mapwrap" aria-label="Mapa">
+      <div id="map"></div>
+      <div id="tvcap" class="tvcap" hidden></div>
+      <div class="map-top">
+        <div class="search">
+          <input id="search" type="search" placeholder="Buscar município, zona ou seção…" autocomplete="off" aria-label="Buscar">
+          <div id="searchRes" class="search-res" hidden></div>
+        </div>
+        <select id="selUf" aria-label="Filtrar UF"><option value="">Brasil</option></select>
+        <div class="seg" id="segLayer" role="radiogroup" aria-label="Camada">
+          <button data-v="auto" class="on">Auto</button><button data-v="uf">UF</button><button data-v="muni">Município</button><button data-v="hex">Hexágonos</button><button data-v="locais">Locais</button>
+        </div>
+      </div>
+      <div class="legend-card" id="legend">
+        <label class="lg-mode">Cor do mapa
+          <select id="selMode" aria-label="Cor do mapa"></select>
+        </label>
+        <div id="legendBody"></div>
+      </div>
+      <div class="map-badge" id="resBadge"></div>
+      <div id="tooltip" class="tooltip" hidden></div>
+      <div id="loading" class="loading">Gerando ~420 mil seções sintéticas…</div>
+    </section>
+
+    <section id="right" aria-label="Em foco"></section>
+  </main>
+</div>
+
+<dialog id="dlgSettings">
+  <form method="dialog" class="settings">
+    <h2>Ajustes</h2>
+    <fieldset><legend>Candidatos (configurável)</legend>
+      <div class="cand-row"><input id="cAname" aria-label="Nome do candidato A"><input id="cAnum" class="num" aria-label="Número A"><input id="cAcol" type="color" aria-label="Cor A"></div>
+      <div class="cand-row"><input id="cBname" aria-label="Nome do candidato B"><input id="cBnum" class="num" aria-label="Número B"><input id="cBcol" type="color" aria-label="Cor B"></div>
+      <div class="presets">Paletas:
+        <button type="button" data-p="hub">Azul × laranja (referência)</button>
+        <button type="button" data-p="neutral">Violeta × âmbar</button>
+      </div>
+      <p class="hint">Evitamos cores de partido (vermelho/verde-amarelo). Azul × laranja passa no teste de daltonismo (ΔE 27).</p>
+    </fieldset>
+    <fieldset><legend>Simulação</legend>
+      <label>Cenário <select id="selScenario"></select></label>
+      <label><input type="checkbox" id="chkFade" checked> Esmaecer áreas com pouca apuração</label>
+      <label>Detalhe dos hexágonos <select id="selResOff"><option value="-1">menos</option><option value="0" selected>auto</option><option value="1">mais</option></select></label>
+      <label>Tema <select id="selTheme"><option value="dark">Escuro (TV)</option><option value="light">Claro</option></select></label>
+    </fieldset>
+    <menu><button value="ok" class="primary">Fechar</button></menu>
+  </form>
+</dialog>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

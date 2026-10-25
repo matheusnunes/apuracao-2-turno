@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apuração 2º turno · sala</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Crect width=%228%22 height=%2216%22 fill=%22%233987e5%22/%3E%3Crect x=%228%22 width=%228%22 height=%2216%22 fill=%22%23d9731f%22/%3E%3C/svg%3E">
+<link rel="stylesheet" href="vendor/maplibre-gl@4.7.1--maplibre-gl.css" onerror="this.onerror=null;this.href='https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css'">
+<link rel="stylesheet" href="css/style.css">
+<script>
+  // Bibliotecas com versão fixa: cópia local em vendor/ primeiro (a TV recarrega a cada 45 min), CDN como reserva.
+  // ?deck=9.1 testa deck.gl 9.1.14 (com ?interleaved=1 põe rótulos do mapa base por cima).
+  (function () {
+    var q = new URLSearchParams(location.search), d91 = q.get('deck') === '9.1';
+    var deckV = d91 ? '9.1.14' : '9.0.38';
+    var libs = [
+      ['vendor/maplibre-gl@4.7.1--maplibre-gl.js', 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js', 'https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js'],
+      ['vendor/h3-js@4.1.0--h3-js.umd.js', 'https://unpkg.com/h3-js@4.1.0/dist/h3-js.umd.js', 'https://cdn.jsdelivr.net/npm/h3-js@4.1.0/dist/h3-js.umd.js'],
+      ['vendor/deck.gl@' + deckV + '--dist.min.js', 'https://unpkg.com/deck.gl@' + deckV + '/dist.min.js', 'https://cdn.jsdelivr.net/npm/deck.gl@' + deckV + '/dist.min.js'],
+    ];
+    function one(urls, i, done) {
+      if (i >= urls.length) { done(new Error('não carregou ' + urls[0])); return; }
+      var s = document.createElement('script'); s.src = urls[i]; s.async = false;
+      s.onload = function () { done(null); };
+      s.onerror = function () { s.remove(); one(urls, i + 1, done); };
+      document.head.appendChild(s);
+    }
+    function next(k) {
+      if (k >= libs.length) { var m = document.createElement('script'); m.type = 'module'; m.src = 'js/app.js'; document.head.appendChild(m); return; }
+      one(libs[k], 0, function (err) {
+        if (err) { var l = document.getElementById('loading'); if (l) l.textContent = 'Erro: ' + err.message + ' — nova tentativa em 30 s'; setTimeout(function () { location.reload(); }, 30000); return; }
+        next(k + 1);
+      });
+    }
+    window.addEventListener('DOMContentLoaded', function () { next(0); });
+  })();
+</script>
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <div class="brand">
+      <div class="brand-title">Apuração · 2º turno · Presidente</div>
+      <div class="brand-sub"><span id="clock">—</span> · <a href="numeros.html" class="quiet">só números</a></div>
+    </div>
+    <div class="placar" id="placar" title="Placar oficial das seções já totalizadas (agregado do TSE). Não compara com o 1º turno."></div>
+    <div class="progress" id="progress"></div>
+    <div class="fresh" id="fresh"></div>
+    <div class="top-ctrls">
+      <button id="btnTv" class="chip tv on" aria-pressed="true" title="Modo TV: ciclo automático de vistas. Qualquer interação pausa por 60 s.">▶ Modo TV</button>
+      <button id="btnSettings" class="icon-btn" title="Ajustes" aria-label="Ajustes">⚙</button>
+    </div>
+  </header>
+  <div id="banners" class="banners" hidden></div>
+
+  <main id="main">
+    <section id="left" aria-label="Brasil"></section>
+
+    <section id="mapwrap" aria-label="Mapa">
+      <div id="map"></div>
+      <div id="tvcap" class="tvcap" hidden></div>
+      <div class="map-top">
+        <div class="search">
+          <input id="search" type="search" placeholder="Buscar município, zona ou seção…" autocomplete="off" aria-label="Buscar">
+          <div id="searchRes" class="search-res" hidden></div>
+        </div>
+        <select id="selUf" aria-label="Filtrar UF"><option value="">Brasil</option></select>
+        <div class="seg" id="segLayer" role="radiogroup" aria-label="Camada">
+          <button data-v="auto" class="on">Auto</button><button data-v="uf">UF</button><button data-v="muni">Município</button><button data-v="hex">Hexágonos</button><button data-v="locais">Locais</button>
+        </div>
+      </div>
+      <div class="legend-card" id="legend">
+        <label class="lg-mode">Cor do mapa
+          <select id="selMode" aria-label="Cor do mapa"></select>
+        </label>
+        <div id="legendBody"></div>
+      </div>
+      <div class="map-badge" id="resBadge"></div>
+      <div id="tooltip" class="tooltip" hidden></div>
+      <div id="loading" class="loading">Carregando bibliotecas…</div>
+    </section>
+
+    <section id="right" aria-label="Em foco"></section>
+  </main>
+</div>
+
+<dialog id="dlgSettings">
+  <form method="dialog" class="settings">
+    <h2>Ajustes</h2>
+    <fieldset><legend>Candidatos</legend>
+      <div class="cand-row"><input id="cAname" aria-label="Nome do candidato A"><input id="cAnum" class="num" aria-label="Número A"><input id="cAcol" type="color" aria-label="Cor A"></div>
+      <div class="cand-row"><input id="cBname" aria-label="Nome do candidato B"><input id="cBnum" class="num" aria-label="Número B"><input id="cBcol" type="color" aria-label="Cor B"></div>
+      <div class="presets">Paletas:
+        <button type="button" data-p="hub">Azul × laranja (referência)</button>
+        <button type="button" data-p="neutral">Violeta × âmbar</button>
+      </div>
+      <p class="hint">Evitamos cores de partido. Azul × laranja passa no teste de daltonismo (ΔE 27). Cores trocadas aqui não são revalidadas.</p>
+    </fieldset>
+    <fieldset><legend>Mapa</legend>
+      <label><input type="checkbox" id="chkFade" checked> Esmaecer áreas com pouca apuração</label>
+      <label>Detalhe dos hexágonos <select id="selResOff"><option value="-1">menos</option><option value="0" selected>auto</option><option value="1">mais</option></select></label>
+      <label>Tema <select id="selTheme"><option value="dark">Escuro (TV)</option><option value="light">Claro</option></select></label>
+      <p class="hint" id="liveInfo"></p>
+    </fieldset>
+    <menu><button value="ok" class="primary">Fechar</button></menu>
+  </form>
+</dialog>
+</body>
+</html>

@@ -1,0 +1,19 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Dados baixados e gerados (regeneráveis pelo ETL, coletor, mock e export_base)
+data/
+site/data/
+mock/out/
+mock/cache/
+analytics/cache/
+analytics/logs/
+
+# Amostras baixadas do TSE (inclui cópia do app deles) e caches de scripts
+research/samples/
+
+*.log
+.DS_Store
