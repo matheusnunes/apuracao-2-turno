@@ -87,17 +87,33 @@ class Child:
                 pass
 
 
+def _cmdline(pid: int) -> str:
+    return subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True).stdout
+
+
 def kill_orphans() -> None:
-    """Derruba filhos de uma execução anterior que morreu sem limpar (ex.: kill -9 no supervisor)."""
+    """Encerra uma execução anterior: o supervisor, se ainda vivo (senão ele reiniciaria os filhos),
+    e os filhos que sobraram (ex.: kill -9 no supervisor)."""
     try:
         pids = json.loads(PIDFILE.read_text())
     except (OSError, ValueError):
         return
+    sala = pids.pop("sala", None)
+    if sala is None and "caffeinate" in pids:  # pidfile antigo: o caffeinate guarda o pid do supervisor (-w)
+        parts = _cmdline(pids["caffeinate"]).split()
+        sala = int(parts[-1]) if "caffeinate" in " ".join(parts) and parts[-1].isdigit() else None
+    if sala and sala != os.getpid() and "sala.py" in _cmdline(sala):
+        print(f"[sala] outro supervisor ainda rodando (pid={sala}); encerrando…", flush=True)
+        os.kill(sala, signal.SIGTERM)
+        for _ in range(60):
+            time.sleep(0.5)
+            if "sala.py" not in _cmdline(sala):
+                break
+        else:
+            os.kill(sala, signal.SIGKILL)
     for name, pid in pids.items():
         try:
-            cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)],
-                                 capture_output=True, text=True).stdout
-            if CHILD_MARKERS.get(name, "\0") in cmd:
+            if CHILD_MARKERS.get(name, "\0") in _cmdline(pid):
                 os.killpg(pid, signal.SIGTERM)
                 print(f"[sala] órfão de execução anterior encerrado: {name} pid={pid}", flush=True)
         except (ProcessLookupError, PermissionError):
@@ -106,7 +122,7 @@ def kill_orphans() -> None:
 
 
 def write_pidfile(children: list[Child]) -> None:
-    pids = {c.name: c.proc.pid for c in children if c.proc is not None}
+    pids = {"sala": os.getpid()} | {c.name: c.proc.pid for c in children if c.proc is not None}
     tmp = PIDFILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(pids))
     os.replace(tmp, PIDFILE)

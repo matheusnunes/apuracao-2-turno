@@ -41,7 +41,7 @@ Pasta do projeto: `~/Projects/apuracao-2-turno`. Todos os comandos rodam a parti
 | Erros 403/429 no log | Bloqueio do TSE | Os boletins pausam sozinhos por 10 min. Se os **agregados** também derem 403: trocar para o hotspot do celular. Se ainda assim falhar, reiniciar só com agregados: `uv run python sala.py --mode live --no-bu` |
 | Rede caiu | Wi-Fi/roteador | O coletor retoma sozinho quando a rede volta, sem baixar de novo o que já tem |
 | Tela travada ou lenta | Navegador | Recarregar (⌘R); ela recarrega sozinha a cada 45 min. Reserva leve: http://127.0.0.1:8000/numeros.html |
-| Mac reiniciou, ou o terminal do `sala.py` foi fechado/morto | Atualização, energia, engano | `uv run python sala.py --mode live` (**sem** `--clean-live`). Ele encerra sozinho os processos órfãos da execução anterior, e o coletor e a análise retomam de onde pararam |
+| Mac reiniciou, ou o terminal do `sala.py` foi fechado/morto | Atualização, energia, engano | `uv run python sala.py --mode live` (**sem** `--clean-live`). Ele encerra sozinho a execução anterior, seja o supervisor ainda vivo (inclusive um aberto pelo Claude) ou os processos órfãos. O coletor e a análise retomam de onde pararam |
 
 ## Encerrar
 
