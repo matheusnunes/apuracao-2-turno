@@ -130,7 +130,9 @@ def write_pidfile(children: list[Child]) -> None:
 
 
 def build_children(args: argparse.Namespace) -> list[Child]:
-    children: list[Child] = [Child("caffeinate", ["caffeinate", "-dimsu", "-w", str(os.getpid())])]
+    children: list[Child] = []
+    if sys.platform == "darwin":  # no Railway (Linux) não há caffeinate nem Mac para manter acordado
+        children.append(Child("caffeinate", ["caffeinate", "-dimsu", "-w", str(os.getpid())]))
     # Estado do coletor separado por modo, para o ensaio não contaminar a noite real.
     collector = [PY, "-m", "collector", "run", "--source", args.mode, "--agg-rate", str(args.agg_rate)]
     if args.mode == "mock":
@@ -145,7 +147,7 @@ def build_children(args: argparse.Namespace) -> list[Child]:
     children += [
         Child("collector", collector + args.collector_args),
         Child("analytics", [PY, "-m", "analytics.run", "--live-dir", str(LIVE_DIR), "--interval", "20"]),
-        Child("server", [PY, str(ROOT / "site" / "serve.py"), "--port", str(args.port)]),
+        Child("server", [PY, str(ROOT / "site" / "serve.py"), "--port", str(args.port)] + (["--lan"] if args.lan else [])),
     ]
     # Ensaio nunca vai para o espelho online.
     if args.mode == "live" and not args.no_cloud and CLOUD_CFG.exists():
@@ -213,6 +215,7 @@ def main() -> None:
                     help="apaga site/data/live e, no modo live, arquiva o estado do coletor (só às 16:30; para reiniciar no meio da noite, rode sem)")
     ap.add_argument("--no-cloud", action="store_true", help="não envia para o espelho online (data/cloud.json)")
     ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--lan", action="store_true", help="servidor escuta em 0.0.0.0 (Railway, outro aparelho na rede)")
     ap.add_argument("--mock-port", type=int, default=8787)
     ap.add_argument("--mock-arg", dest="mock_args", action="append", default=[],
                     help="argumento extra repassado ao mock (repetível)")

@@ -110,7 +110,7 @@ class Handler(serve.Handler):
         """Deixa o gzip pronto para o primeiro leitor (vários aparelhos pedem o mesmo arquivo juntos)."""
         if dest.suffix.lower() not in serve.GZIP_EXT or len(data) <= 1024:
             return
-        key = (str(dest.resolve()), dest.stat().st_mtime_ns)
+        key = (str(dest), dest.stat().st_mtime_ns)
         gz = gz or gzip.compress(data, compresslevel=5 if live else 6)
         with serve._gz_lock:
             for k in [k for k in serve._gz_cache if k[0] == key[0]]:

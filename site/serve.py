@@ -52,7 +52,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = unquote(urlsplit(self.path).path)
         if path.endswith("/"):
             path += "index.html"
-        p = (ROOT / path.lstrip("/")).resolve()
+        # normpath (e não resolve) barra ".." sem seguir links: no Railway data/live é um link para o volume.
+        p = Path(os.path.normpath(ROOT / path.lstrip("/")))
         try:
             p.relative_to(ROOT)
         except ValueError:

@@ -1,0 +1,14 @@
+# Sala completa no Railway: coletor + analytics + tela (sala.py), com a base do 1T embutida.
+# Montada por cloud/deploy_sala.sh (a base não está no git). Volume do Railway em /app/data.
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends procps tzdata && rm -rf /var/lib/apt/lists/*
+ENV TZ=America/Sao_Paulo PYTHONUNBUFFERED=1 UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+WORKDIR /app
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+ENV PATH="/app/.venv/bin:$PATH"
+COPY . .
+# data/ vira o volume (estado do coletor, logs); a base vai junto da imagem e é copiada para lá ao subir.
+# site/data/live aponta para o volume para o histórico da análise sobreviver a um reinício.
+RUN mv data/base /app/_base && rm -rf data site/data/live && ln -s /app/data/site-live site/data/live
+CMD ["sh", "cloud/entrypoint.sh"]
