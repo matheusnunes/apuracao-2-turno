@@ -126,35 +126,42 @@ def parse_cs(d: dict):
                     yield mun5, z4, s4, dh, principal
 
 
+def _bu_file(h: dict) -> tuple[str | None, str | None]:
+    arqs = h.get("arq") or []
+    for want in ("bu", "busa"):
+        for f in arqs:
+            if str(f.get("tp", "")).lower() == want:
+                return f.get("nm"), want
+    for f in arqs:
+        n = str(f.get("nm", ""))
+        if n.endswith("-bu.dat") or n.endswith("-busa.dat"):
+            return n, "bu" if n.endswith("-bu.dat") else "busa"
+    return None, None
+
+
 def parse_aux(d: dict) -> dict:
-    """aux.json -> {st, hash, dr, hr, nm, tp, n_hashes} (hash None se nada 'Totalizado')."""
+    """aux.json -> {st, hash, dr, hr, nm, tp, n_hashes} (hash None se não há boletim utilizável).
+
+    Vale o hash mais recente com st "Totalizado" ou, no 2T de 2026, "Recebido" com o bu.dat já listado
+    (o TSE passou a marcar assim seções já totalizadas no cs.json). Empate de horário: Totalizado."""
     hashes = d.get("hashes") or []
-    best = None
-    best_t = None
+    best = best_key = None
     for h in hashes:
-        if str(h.get("st", "")).strip().lower() != "totalizado":
+        st = str(h.get("st", "")).strip().lower()
+        if st == "totalizado":
+            rank = 1
+        elif st == "recebido" and _bu_file(h)[0]:
+            rank = 0
+        else:
             continue
         t = parse_brt(h.get("dr"), h.get("hr"))
-        if best is None or (t is not None and (best_t is None or t >= best_t)):
-            best, best_t = h, t
+        key = (t is not None, t.timestamp() if t is not None else 0.0, rank)
+        if best is None or key >= best_key:
+            best, best_key = h, key
     out = {"st": d.get("st"), "hash": None, "dr": None, "hr": None, "nm": None, "tp": None,
            "n_hashes": len(hashes), "states": [h.get("st") for h in hashes]}
     if best is None:
         return out
-    nm = tp = None
-    arqs = best.get("arq") or []
-    for want in ("bu", "busa"):
-        for f in arqs:
-            if str(f.get("tp", "")).lower() == want:
-                nm, tp = f.get("nm"), want
-                break
-        if nm:
-            break
-    if nm is None:
-        for f in arqs:
-            n = str(f.get("nm", ""))
-            if n.endswith("-bu.dat") or n.endswith("-busa.dat"):
-                nm, tp = n, "bu" if n.endswith("-bu.dat") else "busa"
-                break
+    nm, tp = _bu_file(best)
     out.update(hash=best.get("hash"), dr=best.get("dr"), hr=best.get("hr"), nm=nm, tp=tp)
     return out

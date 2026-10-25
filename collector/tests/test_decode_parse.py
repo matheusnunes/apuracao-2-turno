@@ -96,3 +96,21 @@ def test_parse_aux_and_time():
         {"hash": "a", "st": "Totalizado", "dr": "25/10/2026", "hr": "17:10:00", "arq": [{"nm": "a-bu.dat", "tp": "bu"}]},
         {"hash": "b", "st": "Totalizado", "dr": "25/10/2026", "hr": "18:10:00", "arq": [{"nm": "b-busa.dat", "tp": "busa"}]}]})
     assert two["hash"] == "b" and two["tp"] == "busa"
+
+
+def test_parse_aux_2026_recebido_com_bu():
+    # 2T de 2026: o aux marca "Recebido" (topo "Recebida") e o bu.dat já está publicado e decodifica
+    rec = tse.parse_aux({"st": "Recebida", "hashes": [{"hash": "h1", "st": "Recebido", "dr": "25/10/2026", "hr": "19:31:59",
+        "arq": [{"nm": "o03221to9559100030021-rdv.dat"}, {"nm": "o03221to9559100030021-bu.dat"}]}]})
+    assert rec["hash"] == "h1" and rec["nm"] == "o03221to9559100030021-bu.dat" and rec["tp"] == "bu"
+    # no mesmo horário, Totalizado ganha; um Recebido mais novo (reenvio) ganha do Totalizado antigo
+    tie = tse.parse_aux({"hashes": [
+        {"hash": "r", "st": "Recebido", "dr": "25/10/2026", "hr": "19:00:00", "arq": [{"nm": "r-bu.dat"}]},
+        {"hash": "t", "st": "Totalizado", "dr": "25/10/2026", "hr": "19:00:00", "arq": [{"nm": "t-bu.dat"}]}]})
+    assert tie["hash"] == "t"
+    newer = tse.parse_aux({"hashes": [
+        {"hash": "t", "st": "Totalizado", "dr": "25/10/2026", "hr": "19:00:00", "arq": [{"nm": "t-bu.dat"}]},
+        {"hash": "r", "st": "Recebido", "dr": "25/10/2026", "hr": "19:20:00", "arq": [{"nm": "r-bu.dat"}]}]})
+    assert newer["hash"] == "r"
+    # outros estados não valem
+    assert tse.parse_aux({"hashes": [{"hash": "x", "st": "Excluído", "arq": [{"nm": "x-bu.dat"}]}]})["hash"] is None
