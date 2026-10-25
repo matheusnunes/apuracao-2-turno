@@ -2,7 +2,7 @@
 // agregação espacial do mapa (mapagg.js). Bibliotecas globais (UMD): maplibregl, deck, h3.
 import {
   $, el, isNum, nf0, nf1, fPP, fM, fPct, fN, fInt, U100, fAge, fProb, hhmm, parseIso, parseBrt, loadPrefs, savePrefs, PRESETS,
-  rgbCss, cssVar, applyCandColors, keyEl, safe, logErr,
+  rgbCss, cssVar, applyCandColors, keyEl, safe, logErr, fimVotacao, fimTxt,
 } from './fmt.js';
 import { LiveFeed, liveBaseFromUrl } from './live.js';
 import { freshness, renderBadges, renderBanners } from './health.js';
@@ -417,18 +417,18 @@ function captureBlock(M, compact = false) {
   }
   return frag;
 }
-/** antes das 17h BRT do dia: texto "faltam X" para o início da apuração; senão null */
-function until17() {
-  const now = new Date(), day = now.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
-  const t17 = new Date(`${day}T17:00:00-03:00`).getTime();
-  return now.getTime() < t17 && !(agg()?.br?.st > 0) ? fAge((t17 - now.getTime()) / 1000) : null;
+/** antes do fim da votação (BRT): texto "faltam X"; senão null */
+function untilFim() {
+  const now = Date.now(), t = fimVotacao(now).getTime();
+  return now < t ? fAge((t - now) / 1000) : null;
 }
+/** Referência discreta (some a partir de 2%): não pode competir com o placar do 2º turno no topo. */
 function baselineCard() {
   const b = an()?.baseline_1t || B.meta.baseline_1t, bm = B.meta.baseline_1t;
-  const c = el('div', 'card');
-  c.append(el('h2', null, 'Ponto de partida · 1º turno'));
+  const c = el('div', 'card base1t');
+  c.append(el('div', 'kicker', 'Ponto de partida · 1º turno'));
   const lp = b.l_pct_valid ?? bm.l_pct_valid, op = b.o_pct_valid ?? bm.o_pct_valid;
-  const duo = el('div', 'duo big'), ia = el('i'), ib = el('i');
+  const duo = el('div', 'duo'), ia = el('i'), ib = el('i');
   ia.style.width = lp + '%'; ia.style.background = 'var(--A)'; ib.style.width = op + '%'; ib.style.background = 'var(--B)'; duo.append(ia, el('i', 'gap'), ib);
   const row = el('div', 'base-row');
   const a = el('span'); a.append(keyEl('A'), `${short('A')} ${fPct(lp, 2)}`);
@@ -436,8 +436,8 @@ function baselineCard() {
   row.append(a, o);
   c.append(row, duo);
   c.append(el('div', 'sub', `${fInt(b.l)} × ${fInt(b.o)} votos · diferença de ${fN(Math.abs(b.margin_votes))} votos · ${fN(b.aptos)} aptos`));
-  const u = until17();
-  if (u) c.append(el('div', 'waiting', `Aguardando 17h (BRT): resultados começam em ${u}.`));
+  const u = untilFim();
+  if (u) c.append(el('div', 'waiting', agg()?.br?.st > 0 ? `Votação até as ${fimTxt()}: o TSE retoma a divulgação em ${u}.` : `Votação até as ${fimTxt()}: resultados começam em ${u}.`));
   return c;
 }
 let lastLeftAt = 0;
@@ -965,7 +965,7 @@ function buildTvViews() {
   if (!comparing()) {
     const b = A?.baseline_1t || B.meta.baseline_1t;
     v.push({ key: 'base1t', layer: 'auto', mode: 'margem1', focus: { type: 'br' }, title: () => 'Ponto de partida · 1º turno por município',
-      text: () => { const u = until17(); return tidy([`No 1º turno: ${short('A')} `, { b: fN(b.l) }, ' × ', { b: fN(b.o) }, ` ${short('B')}. Para empatar, ${short('A')} precisa ganhar `, { b: `${fM(req, 2)} ${votoS(req)} de margem ${U100}` }, ' sobre o 1º turno. ', u ? `Resultados a partir das 17h (em ${u}).` : '']); } });
+      text: () => { const u = untilFim(); return tidy([`No 1º turno: ${short('A')} `, { b: fN(b.l) }, ' × ', { b: fN(b.o) }, ` ${short('B')}. Para empatar, ${short('A')} precisa ganhar `, { b: `${fM(req, 2)} ${votoS(req)} de margem ${U100}` }, ' sobre o 1º turno. ', u ? `Resultados a partir das ${fimTxt()} (em ${u}).` : '']); } });
     if ((agg()?.br?.st || 0) > 0) v.push({ key: 'cob', layer: 'auto', mode: 'cob', focus: { type: 'br' }, title: () => 'O que já foi totalizado',
       text: () => { const o = MA.official(agg()?.br), mc = an()?.status?.mix_caption;
         return tidy([{ b: fPct(o.pct) }, ' das seções totalizadas. ', sent(mc), phase() === 'pre' ? 'A comparação com o 1º turno começa com 2% das seções.' : '']); } });
@@ -1262,7 +1262,7 @@ async function boot() {
   });
   setInterval(() => {
     safe('frescor', renderFresh); safe('tv', tvLoop); safe('relógio', renderClock);
-    if (!comparing() && Date.now() - lastLeftAt > 30000) safe('esquerda', renderLeft); // contagem regressiva das 17h
+    if (!comparing() && Date.now() - lastLeftAt > 30000) safe('esquerda', renderLeft); // contagem regressiva até o fim da votação
   }, 1000);
   setInterval(reloadWatch, 60000);
   // banners aparecem/somem, janela muda: as colunas se reajustam (nada de rolagem na TV)

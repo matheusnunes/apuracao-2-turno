@@ -1,7 +1,5 @@
 // health.js — selos de frescor e faixas de alerta, a partir do manifest/analytics (contracts §5 e §6.2).
-import { parseIso, parseBrt, hhmm, fAge, isNum } from './fmt.js';
-
-const BRT_17 = (d) => { const s = new Date(d); return new Date(`${s.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })}T17:00:00-03:00`); };
+import { parseIso, parseBrt, hhmm, fAge, isNum, fimVotacao, fimTxt } from './fmt.js';
 
 /** @returns {{collector:{level,text,title}, tse:{level,text,title}, banners:{level,text}[], counting:boolean, source:string}} */
 export function freshness(feed, now = Date.now()) {
@@ -32,15 +30,23 @@ export function freshness(feed, now = Date.now()) {
   const st = br?.st ?? 0, ts = br?.ts ?? 0;
   const phase = an?.status?.phase;
   out.counting = st > 0 && (ts ? st < ts : true) && phase !== 'final';
+  const close = fimVotacao(now).getTime(), voting = now < close;
   if (!m) out.tse = { level: 'muted', text: 'TSE: —', title: '' };
   else if (!st) {
-    const before17 = now < BRT_17(now).getTime();
-    out.tse = { level: 'muted', text: before17 ? 'TSE: apuração começa às 17h' : 'TSE: aguardando a 1ª totalização', title: stamp ? `arquivo BR de ${hhmm(stamp)}` : '' };
+    out.tse = { level: 'muted', text: voting ? `TSE: apuração começa às ${fimTxt()}` : 'TSE: aguardando a 1ª totalização', title: stamp ? `arquivo BR de ${hhmm(stamp)}` : '' };
+  } else if (voting) {
+    // votação ainda aberta: o TSE segura a divulgação e o parcial fica parado; não é falha
+    out.tse = { level: 'muted', text: `TSE: divulgação suspensa até as ${fimTxt()}`, title: `última totalização ${stamp ? hhmm(stamp) : '—'}` };
+    banners.push({ level: 'info', text: `Votação prorrogada até as ${fimTxt()}: o TSE suspendeu a divulgação até lá. O parcial (último carimbo ${stamp ? hhmm(stamp) : '—'}) fica parado.` });
   } else {
-    const lvl = !out.counting ? 'ok' : !isNum(tAge) ? 'warn' : tAge > 300 ? 'crit' : tAge > 180 ? 'warn' : 'ok';
+    // a pausa conta a partir do fim da votação, não do último carimbo antes dele
+    const pAge = ref ? (now - Math.max(ref.getTime(), close)) / 1000 : null;
+    const lvl = !out.counting ? 'ok' : !isNum(pAge) ? 'warn' : pAge > 300 ? 'crit' : pAge > 180 ? 'warn' : 'ok';
     out.tse = { level: lvl, text: `TSE: última totalização ${stamp ? hhmm(stamp) : '—'}${isNum(tAge) ? ` (há ${fAge(tAge)})` : ''}`,
       title: `carimbo BR ${h.tse_br_dg_hg || '—'} · última mudança vista pelo coletor ${lastChange ? lastChange.toLocaleTimeString('pt-BR') : '—'}${isNum(h.agg_lag_s) ? ` · atraso de zonas ${Math.round(h.agg_lag_s)} s` : ''}` };
-    if (out.counting && isNum(tAge) && tAge > 300) banners.push({ level: 'warn', text: `O TSE não publica novas totalizações há ${fAge(tAge)} (último carimbo ${stamp ? hhmm(stamp) : '—'}).` });
+    if (out.counting && isNum(pAge) && pAge > 300) banners.push({ level: 'warn', text: ref.getTime() < close
+      ? `O TSE ainda não retomou a divulgação (votação encerrada há ${fAge(pAge)}; último carimbo ${stamp ? hhmm(stamp) : '—'}).`
+      : `O TSE não publica novas totalizações há ${fAge(pAge)} (último carimbo ${stamp ? hhmm(stamp) : '—'}).` });
   }
   if (h.br_frozen) banners.push({ level: 'warn', text: 'Arquivo nacional do TSE parado: o placar do Brasil está sendo reconstruído pela soma das UFs.' });
   if (feed.indexOk === false) banners.push({ level: 'crit', text: `Índice de seções divergente (${feed.indexMsg}). Boletins por seção ignorados; o mapa usa só os swings das zonas.` });

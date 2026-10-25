@@ -47,6 +47,13 @@ export function fAge(sec) {
   if (sec < 5400) return `${Math.round(sec / 60)} min`;
   return `${nf1.format(sec / 3600)} h`;
 }
+/** Fim da votação (BRT). O STF prorrogou o 2º turno de 2026 até as 19h em todo o país; o TSE só divulga depois. */
+export const FIM_VOTACAO = '19:00';
+export const fimTxt = () => FIM_VOTACAO.replace(/:00$/, 'h').replace(':', 'h');
+export function fimVotacao(now = Date.now()) {
+  const day = new Date(now).toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+  return new Date(`${day}T${FIM_VOTACAO}:00-03:00`);
+}
 
 // ---------- candidatos ----------
 export const PRESETS = {

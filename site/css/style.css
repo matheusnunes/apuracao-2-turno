@@ -255,7 +255,9 @@ a.quiet { color: var(--muted); text-decoration: none; border-bottom: 1px dotted 
 .gauge .rem.off { background: repeating-linear-gradient(var(--muted) 0 3px, transparent 3px 6px); }
 .duo.big { height: 14px; margin: .35rem 0; }
 .duo .gap { flex: 1; background: var(--grid); }
-.base-row { display: flex; justify-content: space-between; font-size: 1.5rem; font-weight: 750; }
+.base-row { display: flex; justify-content: space-between; font-size: 1.05rem; font-weight: 650; color: var(--ink-2); }
+.base1t .duo { height: 5px; opacity: .75; }
+.base1t .waiting { font-size: .95rem; padding-top: .35rem; }
 .tbl td.est { font-style: italic; color: var(--muted); }
 .tbl td.nm { max-width: 13rem; overflow: hidden; text-overflow: ellipsis; }
 .top-ctrls { margin-left: auto; }
