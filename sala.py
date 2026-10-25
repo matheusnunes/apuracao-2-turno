@@ -25,9 +25,10 @@ LOG_DIR = ROOT / "data" / "live" / "logs"
 PIDFILE = LOG_DIR / "sala.pids.json"
 MOCK_STATE_DIR = ROOT / "data" / "live-mock"
 LIVE_STATE_DIR = ROOT / "data" / "live"
+CLOUD_CFG = ROOT / "data" / "cloud.json"  # espelho online (cloud/sync.py); fora do git
 # Trecho da linha de comando que identifica cada filho (o PID pode ter sido reaproveitado).
 CHILD_MARKERS = {"caffeinate": "caffeinate", "mock": "mock.server", "collector": "collector run",
-                 "analytics": "analytics.run", "server": "serve.py"}
+                 "analytics": "analytics.run", "server": "serve.py", "cloud": "cloud.sync"}
 PY = sys.executable
 
 BACKOFF_MAX_S = 30
@@ -146,6 +147,9 @@ def build_children(args: argparse.Namespace) -> list[Child]:
         Child("analytics", [PY, "-m", "analytics.run", "--live-dir", str(LIVE_DIR), "--interval", "20"]),
         Child("server", [PY, str(ROOT / "site" / "serve.py"), "--port", str(args.port)]),
     ]
+    # Ensaio nunca vai para o espelho online.
+    if args.mode == "live" and not args.no_cloud and CLOUD_CFG.exists():
+        children.append(Child("cloud", [PY, "-m", "cloud.sync"]))
     return children
 
 
@@ -166,6 +170,10 @@ def print_health(children: list[Child]) -> None:
             return {}
 
     man, ana = load("manifest.json"), load("analytics.json")
+    try:
+        cloud = json.loads((LOG_DIR / "cloud.status.json").read_text()) if any(c.name == "cloud" for c in children) else None
+    except (OSError, ValueError):
+        cloud = {}
     cov, health = man.get("coverage", {}), man.get("health", {})
     status, proj = ana.get("status", {}), ana.get("projection", {})
     age = _age_s(man.get("generated_at"))
@@ -181,6 +189,11 @@ def print_health(children: list[Child]) -> None:
         f"fase {status.get('phase', '-')} | proj margem {proj.get('margin_votes', '-')} "
         f"faixa {proj.get('band_votes', '-')}"
     )
+    if cloud is not None:
+        ok = _age_s(cloud.get("ok_at"))
+        line += " | online " + (f"ok há {ok:.0f}s" if ok is not None else "sem envio ainda")
+        if cloud.get("err"):
+            line += f" (erro: {cloud['err'][:60]})"
     if restarts:
         line += f" | reinícios: {restarts}"
     print(line, flush=True)
@@ -198,6 +211,7 @@ def main() -> None:
                     help="teto da pista de agregados (req/s); 20 atrasa municípios pequenos no pico")
     ap.add_argument("--clean-live", action="store_true",
                     help="apaga site/data/live e, no modo live, arquiva o estado do coletor (só às 16:30; para reiniciar no meio da noite, rode sem)")
+    ap.add_argument("--no-cloud", action="store_true", help="não envia para o espelho online (data/cloud.json)")
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--mock-port", type=int, default=8787)
     ap.add_argument("--mock-arg", dest="mock_args", action="append", default=[],

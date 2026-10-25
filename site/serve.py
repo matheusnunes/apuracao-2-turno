@@ -36,6 +36,7 @@ MIME = {
 }
 GZIP_EXT = {".json", ".topojson", ".geojson", ".js", ".mjs", ".css", ".html", ".svg", ".txt", ".md"}
 _gz_cache: dict[tuple[str, int], bytes] = {}
+GZ_CACHE_MAX = 64
 _gz_lock = threading.Lock()
 
 
@@ -100,7 +101,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if gz is None:
                     gz = gzip.compress(data, compresslevel=5 if live else 6)
                     with _gz_lock:
-                        if len(_gz_cache) > 64:
+                        if len(_gz_cache) > GZ_CACHE_MAX:
                             _gz_cache.clear()
                         _gz_cache[key] = gz
                 data, enc = gz, "gzip"
