@@ -405,8 +405,12 @@ function captureBlock(M, compact = false) {
       const i = el('i'); i.style.width = (Math.max(0, v) / tot * 100) + '%'; i.style.background = col[k]; bar.append(i);
       const s = el('span'); const kk = el('span', 'key'); kk.style.background = col[k]; s.append(kk, `${n} ${fPct(v * 100, 0)}`); lab.append(s);
     }
-    if (!compact) { const kk = el('div', 'kicker', 'Eleitorado em disputa: para onde foi'); kk.dataset.drop = '5'; frag.append(kk); }
-    frag.append(bar, lab);
+    // sem o título a barra parece o placar (ex.: "Lula 48%" num estado em que ele perde): o título vai sempre
+    const kk = el('div', 'kicker', `Votos em disputa${isNum(M.pool_gross) ? ` (${fN(M.pool_gross)})` : ''}: para onde foram`);
+    if (!compact) kk.dataset.drop = '5';
+    const why = el('div', 'lg-note', 'Não é o placar. Em disputa = votos que no 1º turno foram para outros candidatos ou branco/nulo, mais quem passou a votar, nas zonas já apuradas.');
+    why.dataset.drop = '5';
+    frag.append(kk, bar, lab, why);
   }
   if (isNum(M?.capture_l)) {
     const note = el('div', 'capnote');
