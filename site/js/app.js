@@ -100,7 +100,7 @@ function munValue(mode, m) {
     return { v: v > 0 ? 100 * (M.l1[m] - M.o1[m]) / v : null, cov: 1 };
   }
   const A = munAgg(m), off = MA.official(A);
-  if (mode.src === 'cov') return { v: A ? off.pct : null, cov: 1 };
+  if (mode.src === 'cov') return { v: off.pct > 0 ? off.pct : null, cov: 1 }; // 0% = sem cor, distinto de 'pouco apurado'
   if (mode.src === 'proj') { const u = B.mun.uf[m], rp = ufRemProj(u); return { v: rp ? rp.m : null, cov: A ? 1 - off.pct / 100 : 1 }; }
   if (mode.src === 'off') return { v: off.has ? off.m : null, cov: off.pct / 100 };
   const c = MA.cmpFromZ(base1Mun(m), munZ(m));
@@ -109,7 +109,7 @@ function munValue(mode, m) {
 function ufValue(mode, u) {
   const A = agg()?.uf?.[u], off = MA.official(A);
   if (mode.src === 'base') return { v: null, cov: 1 }; // recolor() pinta a UF no 1T pela soma dos municípios
-  if (mode.src === 'cov') return { v: A ? off.pct : null, cov: 1 };
+  if (mode.src === 'cov') return { v: off.pct > 0 ? off.pct : null, cov: 1 }; // 0% = sem cor, distinto de 'pouco apurado'
   if (mode.src === 'proj') { const rp = ufRemProj(u); return { v: rp ? rp.m : null, cov: A ? 1 - off.pct / 100 : 1 }; }
   if (mode.src === 'off') return { v: off.has ? off.m : null, cov: off.pct / 100 };
   const c = MA.cmpFromT(ufT(u));
@@ -930,7 +930,7 @@ function legendTexts(mode) {
     ganhoB: [`Votos ganhos por ${short('B')} sobre o 1º turno`, 'p.p. do eleitorado apto. Sobe mecanicamente com a saída dos outros candidatos.', ['0', '12+ p.p.']],
     abst2: ['Abstenção no 2º turno', '% do eleitorado apto que não votou.', ['10%', '35%+']],
     proj: ['Projeção do que falta apurar (por UF)', 'Margem projetada pelo analytics nos votos que faltam; mais opaco = mais seções por apurar.', [`favorece ${short('B')}`, `favorece ${short('A')}`]],
-    cob: ['Cobertura da apuração', 'Município/UF: % totalizado (oficial). Hexágono/local: % com boletim.', ['0%', '100%']],
+    cob: ['Cobertura da apuração', 'Município/UF: % totalizado (oficial). Hexágono/local: % com boletim. Sem cor = nada apurado ainda.', ['>0%', '100%']],
     margem1: ['Margem no 1º turno (% dos válidos)', `Base de comparação: ${short('A')} − ${short('B')} no 1º turno.`, [`${short('B')} à frente`, `${short('A')} à frente`]],
   }[mode.key];
 }

@@ -111,7 +111,7 @@ export function cmpFromAgg(a, o = 0) {
 export function aggModeValue(key, a, o, req, out) {
   const nSec = a[o], n = a[o + 1];
   out[1] = nSec ? n / nSec : 0; out[2] = n ? a[o + 2] / n : NaN; out[0] = NaN;
-  if (key === 'cob') { out[0] = nSec ? 100 * a[o + 2] / nSec : NaN; out[1] = 1; out[2] = NaN; return; }
+  if (key === 'cob') { const v = nSec ? 100 * a[o + 2] / nSec : 0; out[0] = v > 0 ? v : NaN; out[1] = 1; out[2] = NaN; return; } // 0% = sem cor
   const cA1 = a[o + 5], cA2 = a[o + 6];
   if (!n || cA1 <= 0 || cA2 <= 0) return;
   const L1 = a[o + 8], O1 = a[o + 9], C1 = a[o + 7], BN1 = a[o + 10], C2 = a[o + 11], L2 = a[o + 12], O2 = a[o + 13], BN2 = a[o + 14];
@@ -183,7 +183,7 @@ export const MODES = [
   { key: 'ganhoB', label: 'Ganho de votos de B', kind: 'seq', th: [0, 2, 4, 6, 9, 12], hue: 'B', src: 'cmp' },
   { key: 'abst2', label: 'Abstenção no 2º turno', kind: 'seq', th: [10, 15, 20, 25, 30, 35], hue: 'teal', src: 'cmp' },
   { key: 'proj', label: 'Projeção · votos que faltam', kind: 'div', th: [2, 5, 10, 20, 35], pos: 'A', neg: 'B', src: 'proj' },
-  { key: 'cob', label: '% apurado', kind: 'seq', th: [0, 20, 40, 60, 80, 99.5], hue: 'gray', src: 'cov' },
+  { key: 'cob', label: '% apurado', kind: 'seq', th: [0, 5, 20, 50, 80, 99.5], hue: 'gray', src: 'cov' },
   { key: 'margem1', label: 'Margem no 1º turno (base)', kind: 'div', th: [2, 5, 10, 20, 35], pos: 'A', neg: 'B', src: 'base' },
 ];
 export const MODE = Object.fromEntries(MODES.map((m) => [m.key, m]));
