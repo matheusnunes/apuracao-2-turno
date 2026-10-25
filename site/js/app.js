@@ -505,7 +505,9 @@ function renderLeftInner() {
   if (isNum(rem)) { const rr = el('div', 'rem' + (Math.abs(rem) >= 12 ? ' off' : '')); rr.style.left = `calc(${X(rem)}% - 1px)`; rr.title = `necessário no que falta: ${fM(rem, 2)}`; g.append(rr);
     if (Math.abs(X(rem) - X(req)) > 14) {
       const xr = X(rem), rl2 = el('div', 'remlab', `no que falta ${fM(rem)}${Math.abs(rem) >= 12 ? ' (fora da escala)' : ''}`);
-      rl2.style.left = xr + '%'; rl2.style.transform = xr < 18 ? 'none' : xr > 82 ? 'translateX(-100%)' : 'translateX(-50%)'; g.append(rl2);
+      rl2.style.left = xr + '%'; rl2.style.transform = xr < 18 ? 'none' : xr > 82 ? 'translateX(-100%)' : 'translateX(-50%)';
+      if (isNum(obs) && Math.abs(xr - X(obs)) < 24) rl2.classList.add('up'); // longe do observado: embaixo, sem cruzar o "necessário"
+      g.append(rl2);
     } }
   if (isNum(req)) { const r = el('div', 'req'); r.style.left = `calc(${X(req)}% - 1px)`; g.append(r); const rl = el('div', 'reqlab', `necessário ${fM(req)}`); rl.style.left = X(req) + '%'; g.append(rl); }
   c2.append(g);
@@ -548,9 +550,10 @@ function renderLeftInner() {
   if (vo?.t) { const vn = el('div', 'lg-note', `Placar bruto trocou de líder às ${hhmm(parseIso(vo.t))} (${fPct(vo.pct_secoes, 0)} das seções): agora à frente ${vo.leader === 'L' ? short('A') : short('B')}.`); vn.dataset.drop = '6'; c3.append(vn); }
   if (st?.can_call && pj.virada?.projected && isNum(pj.virada_pct_secoes)) {
     const late = pj.virada_pct_secoes >= 99; // ETA no fim (ou além de 100%): sem horário
-    const ind = el('div', 'lg-note', late ? 'Indicativo: o placar bruto só deve virar no fim da apuração.'
-      : `Indicativo: placar bruto deve trocar de líder perto de ${fPct(pj.virada_pct_secoes, 0)} das seções${pj.virada.eta ? ` (≈ ${pj.virada.eta.slice(0, 5)})` : ''}; incerteza de ±10 p.p.`);
-    ind.dataset.drop = '1'; c3.append(ind);
+    const lead = short(pj.virada.leader_final === 'L' ? 'A' : 'B');
+    const ind = el('div', 'virnote', late ? `Virada prevista: ${lead} só deve passar à frente no placar bruto no fim da apuração.`
+      : `Virada prevista: ${lead} deve passar à frente no placar bruto perto de ${fPct(pj.virada_pct_secoes, 0)} das seções${pj.virada.eta ? ` (≈ ${pj.virada.eta.slice(0, 5)})` : ''}; incerteza de ±10 p.p.`);
+    ind.dataset.drop = '7'; c3.append(ind); // a última coisa a sair quando falta espaço: é o que se espera ver na TV
   }
   const ch = el('div', 'chart'); ch.id = 'chart'; c3.append(ch);
   const lg = el('div', 'lgd'); lg.dataset.drop = '3';
@@ -635,12 +638,25 @@ function renderChart(box, hForce) {
   }
   if (last) add('circle', { cx: X(last.pct_secoes), cy: Y(last.margin_apurado), r: 4.5, fill: ink, stroke: cssVar('--panel'), 'stroke-width': 2 });
   const vo = A?.virada_observada;
-  if (vo && isNum(vo.pct_secoes)) { add('circle', { cx: X(vo.pct_secoes), cy: Ym(0), r: 5, fill: ink, stroke: cssVar('--panel'), 'stroke-width': 2 }); add('text', { x: X(vo.pct_secoes) - 6, y: Ym(0) + 16, 'text-anchor': 'end', 'font-size': 11, 'font-weight': 700, fill: ink }, `virada ${hhmm(parseIso(vo.t))}`); }
+  const wLab = (t, fs) => t.length * fs * 0.56 + 6;
+  let voSpan = null; // rótulos acima da linha do zero, à direita do ponto (abaixo dela fica "↓ B à frente")
+  if (vo && isNum(vo.pct_secoes)) {
+    add('circle', { cx: X(vo.pct_secoes), cy: Ym(0), r: 5, fill: ink, stroke: cssVar('--panel'), 'stroke-width': 2 });
+    const t = `virada ${hhmm(parseIso(vo.t))}`, x = X(vo.pct_secoes) + 8;
+    lateLabels.push([t, x, Ym(0) - 8, 'start', 11, ink, 700]); voSpan = [x, x + wLab(t, 11)];
+  }
+  const pv = pj?.virada?.projected ? pj.virada_pct_secoes : null;
+  if (last && isNum(pv) && pv > last.pct_secoes) {
+    add('circle', { cx: X(pv), cy: Ym(0), r: 5, fill: cssVar('--panel'), stroke: ink, 'stroke-width': 2 });
+    const t = `virada prevista ≈ ${fPct(pv, 0)}`, wt = wLab(t, 11), xl = X(pv) - 8, xr = X(pv) + 8;
+    if (xl - wt > m.l && !(voSpan && xl - wt < voSpan[1] + 4)) lateLabels.push([t, xl, Ym(0) - 8, 'end', 11, ink, 700]);
+    else if (xr + wt < m.l + iw) lateLabels.push([t, xr, Ym(0) - 8, 'start', 11, ink, 700]);
+  }
   // rótulos internos por cima das curvas, com fundo (não somem atrás da linha)
-  for (const [t, x, y, anchor, fs, col] of lateLabels) {
+  for (const [t, x, y, anchor, fs, col, wt] of lateLabels) {
     const wEst = t.length * fs * 0.56 + 6, x0 = anchor === 'end' ? x - wEst + 3 : x - 3;
     add('rect', { x: x0, y: y - fs, width: wEst, height: fs + 4, rx: 3, fill: cssVar('--panel'), opacity: 0.85 });
-    add('text', { x, y, 'text-anchor': anchor, 'font-size': fs, fill: col }, t);
+    add('text', { x, y, 'text-anchor': anchor, 'font-size': fs, 'font-weight': wt || 400, fill: col }, t);
   }
   // crosshair
   const ov = add('rect', { x: m.l, y: m.t, width: iw, height: ih, fill: 'transparent' });
