@@ -64,6 +64,7 @@ uv run python site/tools/cdp_check.py --url 'http://127.0.0.1:8000/?live=data/li
 | `js/health.js` | selos "Coletor OK há Xs" / "TSE: última totalização HH:MM (há N min)" e faixas de alerta |
 | `js/base.js` | carrega `data/base/` (binários "struct of arrays" + JSON) |
 | `js/fmt.js` | formatação pt-BR, cores OKLab, utilidades |
+| `js/exterior.js` | país e coordenada das 186 cidades do exterior (tabela manual; o TSE não publica) |
 | `css/style.css` | tokens claro/escuro e layout TV/desktop/celular (base do protótipo + acréscimos) |
 | `serve.py` | servidor estático: `no-store` + ETag em `data/live*`, gzip p/ JSON, MIME de `.bin`/`.topojson` |
 | `tools/export_base.py` | parquet do ETL → `data/base/` (formatos abaixo) |
@@ -89,7 +90,9 @@ uv run python site/tools/cdp_check.py --url 'http://127.0.0.1:8000/?live=data/li
 - `locais_meta/{uf}.json`: nome, endereço, bairro, nº do local e zona, carregados no clique/hover.
 - `meta.json`: contagens, sha256 do `secoes_index.csv` (o front confere com `manifest.index`) e a base 1T nacional (reserva se o `analytics.json` faltar).
 
-As seções com centroide do município (2.150) e as do exterior (1.351) ficam fora de pontos e H3. Elas entram nos números de zona e município, que vêm do agg e do analytics. O exterior aparece só nos KPIs nacionais e na linha "Exterior".
+As seções com centroide do município (2.150) e as do exterior (1.351) ficam fora de pontos e H3. Elas entram nos números de zona e município, que vêm do agg e do analytics.
+
+O exterior tem vista própria (foco "Exterior", busca por país ou cidade, e uma vista no Modo TV). Cada cidade é um círculo no mapa-múndi, com a cor do modo atual e área proporcional aos votos válidos. A tabela por país abre as cidades no clique. A comparação com o 1º turno no exterior é exata, pelo agregado oficial de cada cidade já toda apurada. O swing por zona do analytics não serve lá, porque não descreve cada cidade.
 
 ## Como a tela usa os dados
 

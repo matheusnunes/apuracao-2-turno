@@ -151,6 +151,26 @@ export function cmpFromZ(base1, z) {
   return r;
 }
 
+/** comparação exata com o 1º turno a partir do agregado oficial completo (A: {l,o,c,a,vb,tvn} do TSE).
+ *  Usada no exterior: lá o swing por zona do analytics não descreve cada cidade. */
+export function cmpExact(base1, A) {
+  const r = { has: false, cov: A?.ts ? (A.st || 0) / A.ts : 0, src: 'obs', pctBu: null };
+  const { a1, c1, l1, o1, bn1 } = base1, A2 = (A?.c || 0) + (A?.a || 0);
+  if (!A || !(A.ts > 0) || A.st < A.ts || !(a1 > 0) || !(A2 > 0)) return r;
+  const L2r = (A.l || 0) / A2, O2r = (A.o || 0) / A2, BN2r = ((A.vb || 0) + (A.tvn || 0)) / A2, AB2r = (A.a || 0) / A2, C2r = 1 - AB2r;
+  const L1r = l1 / a1, O1r = o1 / a1, C1r = c1 / a1, BN1r = bn1 / a1;
+  r.has = true; r.cov = 1; r.obs = 1;
+  r.delta = 100 * ((L2r - O2r) - (L1r - O1r));
+  r.dMarginV = (A.l || 0) - (A.o || 0) - (l1 - o1);
+  r.dAbst = 100 * (AB2r - (1 - C1r)); r.dAbstV = (A.a || 0) - (a1 - c1);
+  r.dBnComp = C2r > 0 && C1r > 0 ? 100 * (BN2r / C2r - BN1r / C1r) : null;
+  r.gA = 100 * (L2r - L1r); r.gB = 100 * (O2r - O1r);
+  r.dL = (A.l || 0) - l1; r.dO = (A.o || 0) - o1;
+  r.abst2 = 100 * AB2r; r.abst1 = 100 * (1 - C1r);
+  r.m2 = L2r + O2r > 0 ? 100 * (L2r - O2r) / (L2r + O2r) : null;
+  return r;
+}
+
 /** UF/região/BR: termômetro do analytics (T.best; exato como conferência) */
 export function cmpFromT(T) {
   const M = T?.best || T?.estimated || null;

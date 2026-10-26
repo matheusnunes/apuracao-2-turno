@@ -8,6 +8,7 @@ import { LiveFeed, liveBaseFromUrl } from './live.js';
 import { freshness, renderBadges, renderBanners } from './health.js';
 import { loadMeta, loadBase, loadH3, loadPlaceMeta } from './base.js';
 import * as MA from './mapagg.js';
+import { PAISES, CIDADES } from './exterior.js';
 
 const { F, K, MODES, MODE } = MA;
 const HEAVY_MIN_MS = 30000;        // recomputação/recoloração por dado novo: no máximo a cada 30 s
@@ -19,7 +20,7 @@ const REG_ORDER = ['N', 'NE', 'CO', 'SE', 'S', 'ZZ'];
 const PREF = loadPrefs();
 const S = {
   cand: PREF.cand, theme: PREF.theme, fade: PREF.fade, resOff: PREF.resOff,
-  mode: 'ritmo', layer: 'auto', ufFilter: '', focus: { type: 'br' }, rankTab: 'lula', rankBy: 'muni',
+  mode: 'ritmo', layer: 'auto', ufFilter: '', focus: { type: 'br' }, rankTab: 'lula', rankBy: 'muni', extIso: '',
   tv: { on: window.innerWidth >= 1100, idx: -1, viewStart: 0, pausedUntil: 0, views: [], cur: null, lastSeen: {} },
   bootAt: Date.now(), lastUserAt: 0,
 };
@@ -32,6 +33,7 @@ let lastHeavyAt = 0, heavyTimer = null, mapDirty = { zones: true, places: true }
 let labelData = [];
 const TMP3 = new Float64Array(3);
 let PLACES_DATA = null;          // objeto estável: um novo {length} a cada atualização faria o deck recalcular tudo
+let EXT = null;                  // exterior: {list (maior → menor), byMun, bounds}; ver initExterior()
 window.__tela = { S, get B() { return B; }, get FEED() { return FEED; }, get PLACE() { return PLACE; }, get CELL() { return CELL; }, map: () => map, reloadNow: () => scheduleReload(0), bootAt: Date.now() };
 
 const an = () => FEED?.an || null;
@@ -46,7 +48,10 @@ function titleCase(s) {
   if (!s) return '';
   return String(s).toLowerCase().split(/(\s+|-)/).map((w, i) => (LOWER.has(w) && i > 0 ? w : w.charAt(0).toUpperCase() + w.slice(1))).join('').replace(/D'(\w)/g, (m, c) => "D'" + c.toUpperCase());
 }
-const munName = (m) => `${titleCase(B.mun.nome[m])} (${String(B.mun.uf[m]).toUpperCase()})`;
+const munName = (m) => { const e = EXT?.byMun.get(m); return e ? `${e.nome} (${PAISES[e.iso]})` : `${titleCase(B.mun.nome[m])} (${String(B.mun.uf[m]).toUpperCase()})`; };
+const isExt = (m) => B.mun.uf[m] === 'zz';
+/** foco no exterior: a região ZZ inteira ou uma cidade de lá */
+const extFocus = () => (S.focus.type === 'region' && S.focus.id === 'ZZ') || (S.focus.type === 'muni' && isExt(S.focus.id));
 const ufName = (u) => B.meta.uf_names[u] || u.toUpperCase();
 const regName = (r) => B.meta.regions[r] || r;
 /** fragmento com partes em negrito: rich(['texto ', {b:'forte'}, '.']) — sem innerHTML */
@@ -65,6 +70,50 @@ function ufRemProj(u) {
   if (!pr || !isNum(pr.l) || !isNum(pr.o)) return null;
   const rl = pr.l - (A?.l || 0), ro = pr.o - (A?.o || 0);
   return rl + ro > 0 ? { m: 100 * (rl - ro) / (rl + ro), rem: rl + ro } : null;
+}
+
+// ---------------- exterior ----------------
+// Cada cidade com seção no exterior vira um círculo no mapa-múndi (exterior.js dá país e coordenada).
+function initExterior() {
+  const list = [], miss = [];
+  for (let m = 0; m < B.M; m++) {
+    if (!isExt(m)) continue;
+    const g = CIDADES[B.mun.nome[m]];
+    if (!g) { miss.push(B.mun.nome[m]); continue; }
+    list.push({ i: m, p: [g[2], g[1]], iso: g[0], nome: g[3] || titleCase(B.mun.nome[m]) });
+  }
+  if (miss.length) logErr(`exterior sem coordenada: ${miss.join(', ')}`);
+  list.sort((a, b) => B.mun.a2[b.i] - B.mun.a2[a.i]); // maiores desenhados primeiro, menores por cima
+  const ext = (k, f) => list.reduce((v, d) => f(v, d.p[k]), list.length ? list[0].p[k] : 0);
+  EXT = { list, byMun: new Map(list.map((d) => [d.i, d])), bounds: list.length ? [[ext(0, Math.min), ext(1, Math.min)], [ext(0, Math.max), ext(1, Math.max)]] : null };
+}
+/** comparação com o 1º turno de uma cidade do exterior: exata, pelo agregado oficial (só com a cidade toda apurada) */
+function extCmp(m) { return MA.cmpExact(base1Mun(m), munAgg(m)); }
+/** raio (px, antes do fator de zoom): área proporcional aos votos válidos; sem apuração, pelo eleitorado */
+function extRadius(m) {
+  const off = MA.official(munAgg(m)), v = off.has ? off.l + off.o : 0.4 * B.mun.a2[m];
+  return Math.max(3, 1.5 * Math.sqrt(v / 100));
+}
+const extZoomK = (z) => Math.max(1, Math.min(2.4, 2 ** ((z - 2) * 0.45)));
+/** países do exterior, do maior para o menor em votos válidos */
+function extCountries() {
+  const by = new Map();
+  for (const d of EXT?.list || []) {
+    let r = by.get(d.iso);
+    if (!r) by.set(d.iso, (r = { iso: d.iso, nome: PAISES[d.iso], cities: [], l: 0, o: 0, a2: 0, st: 0, ts: 0, dmv: 0, a2c: 0 }));
+    const A = munAgg(d.i), c = extCmp(d.i);
+    r.cities.push(d); r.l += A?.l || 0; r.o += A?.o || 0; r.st += A?.st || 0; r.ts += A?.ts || 0; r.a2 += B.mun.a2[d.i];
+    if (c.has) { r.dmv += c.dMarginV; r.a2c += B.mun.a2[d.i]; }
+  }
+  return [...by.values()].map((r) => ({ ...r, v: r.l + r.o, lshare: r.l + r.o > 0 ? 100 * r.l / (r.l + r.o) : null, pct: r.ts ? 100 * r.st / r.ts : 0,
+    delta: r.a2c > 0 ? 100 * r.dmv / r.a2c : null })).sort((a, b) => b.v - a.v || b.a2 - a.a2);
+}
+function flyToCountry(iso, duration = 2200) {
+  const pts = (EXT?.list || []).filter((d) => d.iso === iso).map((d) => d.p);
+  if (!map || !pts.length) return;
+  if (pts.length === 1) { map.flyTo({ center: pts[0], zoom: 5, duration }); return; }
+  const bb = unionBbox(pts.map((p) => [p[0], p[1], p[0], p[1]]));
+  map.fitBounds(bb, { padding: { top: 140, bottom: 80, left: 80, right: 80 }, duration, maxZoom: 5.5 });
 }
 
 /** recomputa valores efetivos por local e por célula; recolore. data=true → respeita o intervalo mínimo */
@@ -103,7 +152,7 @@ function munValue(mode, m) {
   if (mode.src === 'cov') return { v: off.pct > 0 ? off.pct : null, cov: 1 }; // 0% = sem cor, distinto de 'pouco apurado'
   if (mode.src === 'proj') { const u = B.mun.uf[m], rp = ufRemProj(u); return { v: rp ? rp.m : null, cov: A ? 1 - off.pct / 100 : 1 }; }
   if (mode.src === 'off') return { v: off.has ? off.m : null, cov: off.pct / 100 };
-  const c = MA.cmpFromZ(base1Mun(m), munZ(m));
+  const c = isExt(m) ? extCmp(m) : MA.cmpFromZ(base1Mun(m), munZ(m));
   return { v: MA.modeValue(mode, c, null, reqDelta()), cov: c.cov, c };
 }
 function ufValue(mode, u) {
@@ -208,7 +257,8 @@ const pick4 = (arr, i) => [arr[i * 4], arr[i * 4 + 1], arr[i * 4 + 2], arr[i * 4
 let labelKey = '', labelCand = null;
 function labelsFor(z) {
   if (!map) return labelData;
-  const c = map.getCenter(), key = `${z.toFixed(2)}|${c.lng.toFixed(3)}|${c.lat.toFixed(3)}|${map.getContainer().clientWidth}x${map.getContainer().clientHeight}`;
+  const ext = extFocus() && !!EXT?.list.length;
+  const c = map.getCenter(), key = `${z.toFixed(2)}|${c.lng.toFixed(3)}|${c.lat.toFixed(3)}|${map.getContainer().clientWidth}x${map.getContainer().clientHeight}${ext ? '|ext' : ''}`;
   if (key === labelKey) return labelData;
   labelKey = key;
   if (!labelCand) { // todos os municípios com coordenada (exceto exterior), em ordem de prioridade
@@ -219,15 +269,19 @@ function labelsFor(z) {
     }
     labelCand.sort((a, b) => b.w - a.w);
   }
-  const minA2 = z < 5.2 ? Infinity : z < 6.8 ? 250000 : z < 8.5 ? 60000 : z < 10 ? 12000 : 0;
+  // exterior: só as cidades de lá, com o rótulo acima do círculo
+  const cands = ext ? EXT.list.map((d) => ({ m: d.i, t: d.nome, p: d.p, cap: false, a2: B.mun.a2[d.i] })) : labelCand;
+  const minA2 = ext ? (z < 2.3 ? 14000 : z < 3.3 ? 5000 : z < 4.5 ? 1500 : 0) : z < 5.2 ? Infinity : z < 6.8 ? 250000 : z < 8.5 ? 60000 : z < 10 ? 12000 : 0;
+  const zk = extZoomK(z);
   const W = map.getContainer().clientWidth, H = map.getContainer().clientHeight, M = 40;
   const boxes = [], out = [];
-  for (const d of labelCand) {
+  for (const d of cands) {
     if (!d.cap && d.a2 < minA2) continue;
     const q = map.project(d.p);
     if (q.x < -M || q.y < -M || q.x > W + M || q.y > H + M) continue;
-    const size = d.cap ? 13 : 11.5, hw = (d.t.length * size * 0.3) + 4, hh = size * 0.6 + 3;
-    const x0 = q.x - hw, x1 = q.x + hw, y0 = q.y - hh, y1 = q.y + hh;
+    if (ext) d.dy = -(extRadius(d.m) * zk + 8);
+    const size = d.cap ? 13 : 11.5, hw = (d.t.length * size * 0.3) + 4, hh = size * 0.6 + 3, cy = q.y + (d.dy || 0);
+    const x0 = q.x - hw, x1 = q.x + hw, y0 = cy - hh, y1 = cy + hh;
     let hit = false;
     for (let i = 0; i < boxes.length; i += 4) if (x0 < boxes[i + 2] && x1 > boxes[i] && y0 < boxes[i + 3] && y1 > boxes[i + 1]) { hit = true; break; }
     if (hit) continue;
@@ -270,8 +324,20 @@ function updateLayers() {
       }
     }
     layers.push(new deck.PathLayer({ id: 'uf-lines', data: B.ufLines, getPath: (d) => d.path, getColor: dark ? [255, 255, 255, 70] : [0, 0, 0, 60], widthUnits: 'pixels', getWidth: 1, pickable: false }));
+    const zk = extZoomK(z);
+    if (EXT?.list.length) { // exterior: um círculo por cidade, cor do modo atual (mesmas cores dos municípios)
+      layers.push(new deck.ScatterplotLayer({ id: 'ext', data: EXT.list, pickable: true, radiusUnits: 'pixels',
+        getPosition: (d) => d.p, getRadius: (d) => extRadius(d.i) * zk,
+        stroked: true, lineWidthUnits: 'pixels', getLineWidth: 1, getLineColor: dark ? [255, 255, 255, 140] : [20, 20, 20, 120],
+        getFillColor: (d) => { const c = pick4(COLORS.muni, d.i); c[3] = Math.min(255, Math.round(c[3] * 1.2)); return c; },
+        updateTriggers: { getFillColor: [colorVersion], getRadius: [colorVersion, zk.toFixed(2)] }, transitions: TR }));
+    }
     const f = S.focus, selC = dark ? [255, 255, 255, 235] : [0, 0, 0, 220];
-    if (f.type === 'muni') {
+    if (f.type === 'muni' && EXT?.byMun.has(f.id)) {
+      const d = EXT.byMun.get(f.id);
+      layers.push(new deck.ScatterplotLayer({ id: 'sel-ext', data: [d], getPosition: (x) => x.p, radiusUnits: 'pixels', getRadius: extRadius(d.i) * zk + 4,
+        filled: false, stroked: true, lineWidthUnits: 'pixels', getLineWidth: 2.5, getLineColor: selC }));
+    } else if (f.type === 'muni') {
       const parts = B.munPolys.filter((d) => d.i === f.id);
       if (parts.length) layers.push(new deck.PolygonLayer({ id: 'sel-muni', data: parts, getPolygon: (d) => d.p, filled: false, stroked: true, getLineColor: selC, lineWidthUnits: 'pixels', getLineWidth: 2.5 }));
     } else if (f.type === 'uf') {
@@ -287,7 +353,7 @@ function updateLayers() {
       layers.push(new deck.TextLayer({ id: 'labels', data: lab, getText: (d) => d.t, getPosition: (d) => d.p, characterSet: 'auto', sizeUnits: 'pixels',
         getSize: (d) => (d.cap ? 13 : 11.5), getColor: dark ? [240, 240, 236, 235] : [20, 20, 20, 230], fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
         fontWeight: 600, fontSettings: { sdf: true }, outlineWidth: 3, outlineColor: dark ? [11, 12, 16, 230] : [252, 252, 251, 230], pickable: false,
-        getTextAnchor: 'middle', getAlignmentBaseline: 'center', updateTriggers: { getColor: S.theme } }));
+        getTextAnchor: 'middle', getAlignmentBaseline: 'center', getPixelOffset: (d) => [0, d.dy || 0], updateTriggers: { getColor: S.theme } }));
     }
     overlay.setProps({ layers, onHover: (i) => safe('hover', () => onHover(i)), onClick: (i) => safe('click', () => onClick(i)) });
   });
@@ -306,12 +372,20 @@ function placeTitle(p, cb) {
 }
 function onHover(info) {
   const tt = $('#tooltip');
-  if (!info || !info.layer || info.index < 0 || !['muni', 'uf', 'hex', 'places'].includes(info.layer.id)) { tt.hidden = true; return; }
+  if (!info || !info.layer || info.index < 0 || !['muni', 'uf', 'hex', 'places', 'ext'].includes(info.layer.id)) { tt.hidden = true; return; }
   tt.replaceChildren();
   const row = (k, v) => { const r = el('div', 'r'); r.append(el('span', null, k), el('b', null, v)); tt.append(r); };
   const req = reqDelta();
   let c = null, title = '', sub = '';
-  if (info.layer.id === 'muni') {
+  if (info.layer.id === 'ext') {
+    const m = info.object.i, off = MA.official(munAgg(m)), n = B.mun.n_secoes[m];
+    tt.append(el('div', 't', munName(m)), el('div', 'lg-sub', `Totalizado ${fPct(off.pct, 0)} (oficial) · ${n} ${n === 1 ? 'seção' : 'seções'} · ${fInt(B.mun.a2[m])} eleitores`));
+    row('Placar oficial', off.has ? `${short('A')} ${fPct(off.lshare)} × ${fPct(100 - off.lshare)} ${short('B')}` : '—');
+    if (off.has) row('Votos', `${fInt(off.l)} × ${fInt(off.o)}`);
+    c = extCmp(m);
+    if (!c.has) { row('Comparação com o 1T', 'aguardando a cidade toda'); tt.hidden = false; placeTip(tt, info); return; }
+    row('Abstenção 2T', fPct(c.abst2));
+  } else if (info.layer.id === 'muni') {
     const m = info.object.i, A = munAgg(m), off = MA.official(A), z = munZ(m);
     title = munName(m);
     sub = `Totalizado ${fPct(off.pct, 0)} (oficial)${isNum(z?.pct_bu) ? ` · com boletim ${fPct(z.pct_bu, 0)}` : ''} · ${B.mun.n_zonas[m]} zona(s)`;
@@ -356,7 +430,7 @@ function placeTip(tt, info) {
 }
 function onClick(info) {
   if (!info || !info.layer || info.index < 0) return;
-  if (info.layer.id === 'muni') setFocus({ type: 'muni', id: info.object.i });
+  if (info.layer.id === 'muni' || info.layer.id === 'ext') setFocus({ type: 'muni', id: info.object.i });
   else if (info.layer.id === 'uf') setFocus({ type: 'uf', id: B.ufOrder[info.object.i] });
   else if (info.layer.id === 'hex') setFocus({ type: 'cell', res: CELLS_RES, h: info.object.h, idx: info.object.i });
   else if (info.layer.id === 'places') setFocus({ type: 'place', id: info.index });
@@ -364,7 +438,7 @@ function onClick(info) {
 function setFocus(f, fly = false) {
   S.focus = f;
   if (fly) flyToFocus(f);
-  updateLayers(); safe('direita', renderRight); writeHash();
+  updateLayers(); safe('direita', renderRight); safe('legenda', renderLegend); writeHash();
 }
 function unionBbox(list) {
   let x0 = 180, y0 = 90, x1 = -180, y1 = -90, ok = false;
@@ -376,6 +450,8 @@ function flyToFocus(f, duration = 2600) {
   const pad = { top: 110, bottom: 60, left: 40, right: 40 };
   const fit = (bb) => bb && map.fitBounds(bb, { padding: pad, duration, maxZoom: 11.2 });
   if (f.type === 'br') fit(B.meta.br_bounds);
+  else if (f.type === 'region' && f.id === 'ZZ') { if (EXT?.bounds) map.fitBounds(EXT.bounds, { padding: { top: 150, bottom: 50, left: 30, right: 30 }, duration }); }
+  else if (f.type === 'muni' && EXT?.byMun.has(f.id)) map.flyTo({ center: EXT.byMun.get(f.id).p, zoom: Math.max(4.5, Math.min(map.getZoom(), 6)), duration });
   else if (f.type === 'region') fit(unionBbox(B.ufs.filter((u) => u.regiao === f.id).map((u) => u.bbox)));
   else if (f.type === 'uf') fit(unionBbox([B.ufs[B.ufIdx[f.id]]?.bbox]));
   else if (f.type === 'muni') { const bb = B.mun.bbox[f.id]; if (bb) fit([[bb[0], bb[1]], [bb[2], bb[3]]]); else if (isNum(B.mun.lng[f.id])) map.flyTo({ center: [B.mun.lng[f.id], B.mun.lat[f.id]], zoom: 9, duration }); }
@@ -701,13 +777,17 @@ function focusData(f) {
     case 'region': {
       const T = A?.thermometer?.regiao?.[f.id], mx = A?.status?.mix_regiao?.[f.id];
       let l = 0, o = 0; for (const u of B.ufOrder) if (B.ufReg[B.ufIdx[u]] === f.id) { const a = agg()?.uf?.[u]; l += a?.l || 0; o += a?.o || 0; }
-      return { name: regName(f.id), kind: 'Região', c: MA.cmpFromT(T), M: T?.best, off: { has: l + o > 0, l, o, m: l + o > 0 ? 100 * (l - o) / (l + o) : null, lshare: l + o > 0 ? 100 * l / (l + o) : null }, pct: mx?.pct_apurado ?? A?.status?.region_pct_aptos?.[f.id], pctLabel: 'dos aptos apurados' };
+      return { name: regName(f.id), kind: f.id === 'ZZ' ? 'Fora do Brasil' : 'Região', c: MA.cmpFromT(T), M: T?.best, off: { has: l + o > 0, l, o, m: l + o > 0 ? 100 * (l - o) / (l + o) : null, lshare: l + o > 0 ? 100 * l / (l + o) : null }, pct: mx?.pct_apurado ?? A?.status?.region_pct_aptos?.[f.id], pctLabel: 'dos aptos apurados' };
     }
     case 'uf': {
       const T = ufT(f.id), a = agg()?.uf?.[f.id], off = MA.official(a), pr = A?.projection?.uf?.[f.id];
       return { name: ufName(f.id), kind: 'UF', c: MA.cmpFromT(T), M: T?.best, off, pct: off.pct, pctLabel: 'das seções totalizadas (oficial)', proj: pr };
     }
     case 'muni': {
+      if (isExt(f.id)) {
+        const off = MA.official(munAgg(f.id));
+        return { name: munName(f.id), kind: 'Cidade no exterior', c: extCmp(f.id), off, pct: off.pct, pctLabel: 'das seções totalizadas (oficial)', src: 'obs' };
+      }
       const z = munZ(f.id), off = MA.official(munAgg(f.id));
       return { name: munName(f.id), kind: B.mun.capital[f.id] ? 'Capital' : 'Município', c: MA.cmpFromZ(base1Mun(f.id), z), off, pct: off.pct, pctLabel: 'das seções totalizadas (oficial)', pctBu: z?.pct_bu, src: z?.src };
     }
@@ -759,8 +839,55 @@ function renderRightInner() {
   if (comp && d.M) { if (f.type !== 'br') card.append(captureBlock(d.M, true)); const dd = decompBlock(d.M.decomp); dd.style.marginTop = '.5rem'; card.append(dd); }
   R.append(card);
   if (f.type === 'place') { R.append(placeCard(f.id)); return; }
+  if (extFocus() && EXT?.list.length) { R.append(extCard(f)); return; }
   R.append(tableCard(f));
   if (f.type !== 'region' && f.type !== 'uf') R.append(rankCard()); // região/UF: a tabela de UFs ocupa o espaço (TV sem rolagem)
+}
+/** exterior: resumo e tabela por país; clicar num país voa até ele e abre as cidades */
+function extCard(f) {
+  const card = el('div', 'card'), cs = extCountries(), o = MA.official(agg()?.uf?.zz);
+  const selIso = f.type === 'muni' ? EXT.byMun.get(f.id)?.iso : S.extIso;
+  let wa = 0, wb = 0;
+  for (const d of EXT.list) { const x = MA.official(munAgg(d.i)); if (x.has) { if (x.l > x.o) wa++; else if (x.o > x.l) wb++; } }
+  card.append(el('h2', null, 'Exterior · por país'));
+  card.append(el('div', 'sub', `${EXT.list.length} cidades em ${cs.length} países${o.has ? ` · ${fN(o.l + o.o)} votos válidos · ${short('A')} à frente em ${wa}, ${short('B')} em ${wb}` : ''}`));
+  const shareCell = (ls) => {
+    const td = el('td');
+    if (!isNum(ls)) { td.textContent = '—'; return td; }
+    const bar = el('span', 'xbar'), a = el('i'), b = el('i');
+    a.style.width = ls + '%'; a.style.background = 'var(--A)'; b.style.flex = '1'; b.style.background = 'var(--B)';
+    bar.append(a, b); td.append(bar, fPct(ls)); return td;
+  };
+  const tbl = el('table', 'tbl ext'), h = el('tr');
+  for (const t of ['', 'Votos', `${short('A')} %`, 'Δ /100']) h.append(el('th', null, t));
+  tbl.append(h);
+  let selRow = null;
+  for (const r of cs) {
+    const open = r.iso === selIso;
+    const tr = el('tr', 'click' + (open ? ' sel' : ''));
+    tr.append(el('td', 'nm', `${open ? '▾' : '▸'} ${r.nome}${r.cities.length > 1 ? ` (${r.cities.length})` : ''}`), el('td', null, r.v ? fN(r.v) : '—'), shareCell(r.lshare), el('td', null, isNum(r.delta) ? fM(r.delta) : '—'));
+    tr.onclick = () => {
+      userAct(); S.extIso = open ? '' : r.iso;
+      if (S.focus.type !== 'region') setFocus({ type: 'region', id: 'ZZ' }); else renderRight();
+      if (!open) flyToCountry(r.iso);
+    };
+    tbl.append(tr);
+    if (open) {
+      selRow = tr;
+      for (const d of [...r.cities].sort((x, y) => (munAgg(y.i)?.c || 0) - (munAgg(x.i)?.c || 0))) {
+        const x = MA.official(munAgg(d.i)), cc = extCmp(d.i);
+        const ct = el('tr', 'click city' + (f.type === 'muni' && f.id === d.i ? ' sel' : ''));
+        ct.append(el('td', 'nm', d.nome), el('td', null, x.has ? fN(x.l + x.o) : '—'), shareCell(x.lshare), el('td', null, cc.has ? fM(cc.delta) : '—'));
+        ct.onclick = (e) => { e.stopPropagation(); userAct(); setFocus({ type: 'muni', id: d.i }, true); };
+        tbl.append(ct);
+      }
+    }
+  }
+  const wrap = el('div', 'sec-scroll'); wrap.append(tbl); card.append(wrap);
+  if (selRow) requestAnimationFrame(() => { const top = selRow.offsetTop - wrap.offsetTop; if (top < wrap.scrollTop || top > wrap.scrollTop + wrap.clientHeight - 40) wrap.scrollTop = Math.max(0, top - 30); });
+  const n = el('div', 'lg-note', 'Votos válidos no 2º turno. Δ margem: mesmas cidades no 1º turno, votos de margem por 100 eleitores aptos (só cidades totalmente apuradas).'); n.dataset.drop = '2';
+  card.append(n);
+  return card;
 }
 function tableCard(f) {
   const A = an(), req = reqDelta();
@@ -969,7 +1096,7 @@ function renderLegend() {
   const e = el('div', 'lg-ends'); e.append(el('span', null, '◀ ' + ends[0]), el('span', null, ends[1] + ' ▶'));
   b.append(bar, ticks, e);
   const L = effLayer();
-  b.append(el('div', 'lg-note', `${L === 'muni' ? 'Municípios: agregado oficial e swing do analytics. ' : L === 'uf' ? 'UFs: termômetro do analytics. ' : 'Cor cheia = observado na urna (boletim); cor lavada = estimado pelo swing da zona. '}${S.fade && mode.src !== 'cov' && mode.src !== 'base' ? 'Mais transparente = menor parte apurada. ' : ''}Sem cor = ainda sem apuração.`));
+  b.append(el('div', 'lg-note', `${EXT?.list.length && extFocus() ? 'Exterior: cada círculo é uma cidade com seção eleitoral; área proporcional aos votos válidos. ' : ''}${L === 'muni' ? 'Municípios: agregado oficial e swing do analytics. ' : L === 'uf' ? 'UFs: termômetro do analytics. ' : 'Cor cheia = observado na urna (boletim); cor lavada = estimado pelo swing da zona. '}${S.fade && mode.src !== 'cov' && mode.src !== 'base' ? 'Mais transparente = menor parte apurada. ' : ''}Sem cor = ainda sem apuração.`));
 }
 
 // ---------------- Modo TV ----------------
@@ -1011,6 +1138,13 @@ function buildTvViews() {
           isNum(M.d_margin_votes) ? ` (${fN(M.d_margin_votes, true)} votos` : ' (', isNum(req) ? `${isNum(M.d_margin_votes) ? '; ' : ''}${M.delta >= req ? 'acima' : 'abaixo'} do necessário)` : ')',
           isNum(M.d_abst_pp) ? ' · abstenção ' : '', isNum(M.d_abst_pp) ? { b: fPP(M.d_abst_pp) } : '']); } });
   }
+  if (MA.official(agg()?.uf?.zz).has && EXT?.list.length) v.push({ key: 'exterior', layer: 'auto', mode: 'margem', focus: { type: 'region', id: 'ZZ' }, title: () => 'Exterior · placar por cidade',
+    onShow: () => { S.extIso = ''; },
+    text: () => { const o = MA.official(agg()?.uf?.zz); let wa = 0, wb = 0;
+      for (const d of EXT.list) { const x = MA.official(munAgg(d.i)); if (x.has) { if (x.l > x.o) wa++; else if (x.o > x.l) wb++; } }
+      const top = extCountries().filter((r) => isNum(r.lshare)).slice(0, 3).map((r) => `${r.nome} (${r.lshare >= 50 ? short('A') : short('B')} ${fPct(Math.max(r.lshare, 100 - r.lshare), 0)})`);
+      return tidy([`${short('A')} `, { b: fPct(o.lshare) }, ` × ${fPct(100 - o.lshare)} ${short('B')} entre `, { b: `${fN(o.l + o.o)} votos válidos` },
+        ` em ${EXT.list.length} cidades. ${short('A')} à frente em ${wa}, ${short('B')} em ${wb}. `, top.length ? `Mais votos: ${top.join(', ')}.` : '']); } });
   const munLine = (f, body) => { const z = munZ(f.id), c = MA.cmpFromZ(base1Mun(f.id), z);
     if (!c.has) return tidy([{ b: munName(f.id) }, ': comparação com o 1º turno indisponível no momento.']);
     return tidy([{ b: munName(f.id) }, ': ', ...body(c), isNum(z?.pct) ? `, com ${fPct(z.pct, 0)} apurado.` : '.']); };
@@ -1213,13 +1347,14 @@ function wireSearch() {
     } else {
       for (const u of B.ufOrder) if (u !== 'zz' && (norm(ufName(u)).startsWith(q) || u === q)) items.push({ t: `${ufName(u)} (${u.toUpperCase()})`, s: 'Unidade da federação', f: { type: 'uf', id: u } });
       for (const r of REG_ORDER) if (norm(regName(r)).startsWith(q)) items.push({ t: regName(r), s: 'Região', f: { type: 'region', id: r } });
+      for (const [iso, nm] of Object.entries(PAISES)) if (norm(nm).startsWith(q) && EXT?.list.some((d) => d.iso === iso)) items.push({ t: nm, s: 'País · eleitores no exterior', f: { type: 'region', id: 'ZZ' }, iso });
       const qq = ufq ? q.replace(new RegExp(`\\s*\\b${ufq}\\b\\s*`), '').trim() : q;
-      for (let i = 0; i < B.M && items.length < 12; i++) if (munNorm[i].startsWith(qq) && qq.length >= 2 && (!ufq || B.mun.uf[i] === ufq)) items.push({ t: munName(i), s: B.mun.capital[i] ? 'Capital' : 'Município', f: { type: 'muni', id: i } });
+      for (let i = 0; i < B.M && items.length < 12; i++) if ((munNorm[i].startsWith(qq) || (EXT?.byMun.has(i) && norm(EXT.byMun.get(i).nome).startsWith(qq))) && qq.length >= 2 && (!ufq || B.mun.uf[i] === ufq)) items.push({ t: munName(i), s: isExt(i) ? 'Cidade no exterior' : B.mun.capital[i] ? 'Capital' : 'Município', f: { type: 'muni', id: i } });
     }
     if (!items.length) items.push({ t: 'Nada encontrado', s: 'Tente “Recife”, “zona 12 SP” ou “zona 12 seção 40 SP”', f: null });
     for (const it of items.slice(0, 12)) {
       const b = el('button'); b.append(el('div', null, it.t), el('small', null, it.s));
-      b.onclick = () => { if (it.f) { userAct(); setFocus(it.f, true); } res.hidden = true; inp.value = ''; };
+      b.onclick = () => { if (it.f) { userAct(); if (it.iso) { S.extIso = it.iso; setFocus(it.f); flyToCountry(it.iso); } else setFocus(it.f, true); } res.hidden = true; inp.value = ''; };
       res.append(b);
     }
     res.hidden = false;
@@ -1257,6 +1392,7 @@ async function boot() {
   const meta = await loadMeta();
   lo.textContent = `Carregando base: ${fInt(meta.counts.secoes)} seções, ${fInt(meta.counts.locais)} locais…`;
   B = await loadBase(meta);
+  initExterior();
   ZA = MA.makeZones(B.Z);
   PLACE = new Float64Array(B.P * K);
   PLACES_DATA = { length: B.P };
