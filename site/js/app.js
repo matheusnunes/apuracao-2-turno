@@ -92,9 +92,9 @@ function extCmp(m) { return MA.cmpExact(base1Mun(m), munAgg(m)); }
 /** raio (px, antes do fator de zoom): área proporcional aos votos válidos; sem apuração, pelo eleitorado */
 function extRadius(m) {
   const off = MA.official(munAgg(m)), v = off.has ? off.l + off.o : 0.4 * B.mun.a2[m];
-  return Math.max(3, 1.5 * Math.sqrt(v / 100));
+  return Math.max(2.5, 0.8 * Math.sqrt(v / 100));
 }
-const extZoomK = (z) => Math.max(1, Math.min(2.4, 2 ** ((z - 2) * 0.45)));
+const extZoomK = (z) => Math.max(1, Math.min(1.8, 2 ** ((z - 2) * 0.45)));
 /** países do exterior, do maior para o menor em votos válidos */
 function extCountries() {
   const by = new Map();
