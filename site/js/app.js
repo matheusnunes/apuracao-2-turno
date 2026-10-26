@@ -235,7 +235,9 @@ function initMap(view) {
   map.on('moveend', () => { safe('badge', renderBadge); updateLayers(); writeHash(); }); // updateLayers: rótulos da nova vista
   map.getCanvas().addEventListener('webglcontextlost', () => { console.error('[tela] contexto WebGL perdido; recarregando'); scheduleReload(4000); });
 }
-function resForZoom(z) { const t = [4.5, 5.9, 7.3, 8.7, 10.1, 11.5]; let r = 3; for (const x of t) if (z >= x) r++; return Math.max(3, Math.min(9, r + S.resOff)); }
+// Até res 6 o hexágono fica com ~15–20 px na tela; dali em diante a resolução sobe mais rápido que o zoom,
+// para o hexágono encolher ao aproximar (~8 px na entrada da res 9, a mais fina da base, no zoom 10,6).
+function resForZoom(z) { const t = [4.5, 5.9, 7.3, 8.3, 9.3, 10.6]; let r = 3; for (const x of t) if (z >= x) r++; return Math.max(3, Math.min(9, r + S.resOff)); }
 function effLayer() {
   const z = map ? map.getZoom() : 4;
   let L = S.layer === 'auto' ? (z < 7.6 ? 'muni' : z < 11.8 ? 'hex' : 'locais') : S.layer;
@@ -315,7 +317,7 @@ function updateLayers() {
           coverage: 0.9, highPrecision: true, /* o modo instanciado ('auto') não desenha no deck 9.0.38 sobreposto ao MapLibre */ getFillColor: (d) => { const c = pick4(CC, d.i); c[3] = Math.round(c[3] * k); return c; },
           updateTriggers: { getFillColor: [colorVersion, CELLS_RES, L] }, transitions: TR }));
       }
-      if (L === 'locais' || z >= 10.5) {
+      if (L === 'locais' || z >= 11.2) { // antes disso os pontos cobririam os hexágonos de res 9
         layers.push(new deck.ScatterplotLayer({ id: 'places', data: PLACES_DATA, beforeId, pickable: true, radiusUnits: 'meters',
           getPosition: (_, { index }) => [B.L.lng[index], B.L.lat[index]],
           getRadius: (_, { index }) => 22 * Math.sqrt(B.placeAptos[index] / 100), radiusMinPixels: 2, radiusMaxPixels: 13,
