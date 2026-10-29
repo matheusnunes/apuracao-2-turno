@@ -178,7 +178,8 @@ function derive(R, H) {
   const margin = isNum(F.margin_votes) ? F.margin_votes : c.margem;
   // pior caso: tira de Lula, urna a urna, todo voto depois das 17h. Na prévia, o "conservador" também dá folga às urnas
   // ainda sem log (na maior taxa estadual de votos tardios). Usa o menor dos dois.
-  const worstCands = [c.pior_caso_remove && c.pior_caso_remove.margem, c.margem_pior_caso_conservador].filter(isNum);
+  // Com os dados completos (sem prévia) a folga das urnas sem log é desprezível e sai do card.
+  const worstCands = [c.pior_caso_remove && c.pior_caso_remove.margem, preview ? c.margem_pior_caso_conservador : null].filter(isNum);
   const worst = worstCands.length ? Math.min(...worstCands) : null;
   const extrap = isNum(c.margem_pior_caso_conservador) && c.margem_pior_caso_conservador === worst ? (c.tardios_extrapolados_sem_log || 0) : 0;
   const tl = fx.linha_do_tempo || [];

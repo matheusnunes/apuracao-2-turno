@@ -33,7 +33,7 @@ O `idx` não muda com o refresh, porque vem do `cs.json`. O build avisa se as pr
 | `historia.py` | Números dos capítulos 1–4 da história, a partir de analytics, agg, sections.bin e base. Gera `site/data/prorrog/historia.json`. |
 | `fatos_prorrogacao.json` | Linha do tempo da decisão e números do TSE vindos da imprensa, com fonte e `confirmado`. |
 
-Validação: com toda a cobertura, os votos do log batem com o comparecimento do BU em mais de 99,6% das urnas, e o total de votos depois das 17h fica na ordem do balanço do TSE (34.393).
+Validação (29/10, cobertura total: 499.178 urnas com log, 29 seções de votação manual sem log): os votos do log batem com o comparecimento do BU em 499.170 urnas (8 diferenças). Depois das 17h foram 34.747 votos (balanço do TSE: 34.393), 1.993 depois das 18h (TSE: 1.994) e o último às 19h06. No 1º turno, nas mesmas urnas, 3.705.546.
 
 ## Fontes
 
