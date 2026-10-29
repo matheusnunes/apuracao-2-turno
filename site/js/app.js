@@ -676,7 +676,7 @@ function renderLeftInner() {
   }
   const ch = el('div', 'chart'); ch.id = 'chart'; c3.append(ch);
   const lg = el('div', 'lgd'); lg.dataset.drop = '3';
-  lg.innerHTML = '<span><span class="ln"></span>Placar oficial apurado</span><span><span class="ln thin"></span>Projeção ao longo da noite</span><span><span class="band"></span>Faixa 90%</span><span><span class="ln dash"></span>Até a projeção final</span>';
+  lg.innerHTML = '<span><span class="ln"></span>Placar oficial apurado</span><span><span class="ln thin"></span>Projeção ao longo da noite</span><span><span class="band"></span>Margem de erro (faixa de 90%)</span><span><span class="ln dot"></span>Certeza: faixa toda de um lado</span><span><span class="ln dash"></span>Até a projeção final</span>';
   c3.append(lg);
   L.append(c3);
   renderChart(ch);
@@ -724,6 +724,12 @@ function renderChart(box, hForce) {
   // escala pelas margens e pela faixa ATUAL; faixas antigas (largas no começo da noite) são cortadas na borda
   for (const p of hist) { upd(p.margin_apurado); upd(p.margin_proj); }
   if (pj) { upd(pj.margin_votes); if (Array.isArray(pj.band_votes)) { upd(pj.band_votes[0]); upd(pj.band_votes[1]); } }
+  // apuração encerrada: a margem de erro da noite inteira entra na escala (a partir de 2% das seções; o começo é cortado)
+  if (phase() === 'final') for (const p of hist) if (p.pct_secoes >= 2 && Array.isArray(p.band) && p.band.every(isNum)) { upd(Math.max(-6e6, p.band[0])); upd(Math.min(14e6, p.band[1])); }
+  // certeza: a partir deste ponto a faixa de 90% nunca mais tocou o zero
+  let cert = null;
+  for (let i = hist.length - 1; i >= 0; i--) { const b = hist[i].band; if (!Array.isArray(b) || !b.every(isNum) || (b[0] <= 0 && b[1] >= 0)) break; cert = hist[i]; }
+  if (cert && Math.sign(cert.band[0]) !== Math.sign(hist[hist.length - 1].band?.[0] ?? cert.band[0])) cert = null;
   const pad = (ymax - ymin) * 0.1; ymin -= pad; ymax += pad;
   const X = (v) => m.l + (Math.max(0, Math.min(100, v)) / 100) * iw, Y = (v) => m.t + (1 - (Math.max(ymin, Math.min(ymax, toM(v))) - ymin) / (ymax - ymin)) * ih;
   const Ym = (mv) => m.t + (1 - (mv - ymin) / (ymax - ymin)) * ih;
@@ -744,7 +750,10 @@ function renderChart(box, hForce) {
   add('text', { x: m.l, y: m.t - 6, 'font-size': 11, fill: ink2 }, `↑ ${short('A')} à frente · margem em mi votos`); // acima da área do gráfico
   const lateLabels = [[`↓ ${short('B')} à frente`, m.l + 6, Ym(ymin) - 6, 'start', 11, ink2], ['seções totalizadas', m.l + iw - 2, h - 8 - 13, 'end', 10, muted]];
   const hb = hist.filter((p) => Array.isArray(p.band) && p.band.every(isNum));
-  if (hb.length > 1) add('polygon', { points: hb.map((p) => `${X(p.pct_secoes)},${Y(p.band[1])}`).concat(hb.slice().reverse().map((p) => `${X(p.pct_secoes)},${Y(p.band[0])}`)).join(' '), fill: ink, opacity: 0.12 });
+  if (hb.length > 1) {
+    add('polygon', { points: hb.map((p) => `${X(p.pct_secoes)},${Y(p.band[1])}`).concat(hb.slice().reverse().map((p) => `${X(p.pct_secoes)},${Y(p.band[0])}`)).join(' '), fill: ink, opacity: 0.16 });
+    for (const k of [0, 1]) add('polyline', { points: hb.map((p) => `${X(p.pct_secoes)},${Y(p.band[k])}`).join(' '), fill: 'none', stroke: ink2, 'stroke-width': 0.8, 'stroke-dasharray': '3 3', opacity: 0.8 });
+  }
   const hp = hist.filter((p) => isNum(p.margin_proj));
   if (hp.length > 1) add('polyline', { points: hp.map((p) => `${X(p.pct_secoes)},${Y(p.margin_proj)}`).join(' '), fill: 'none', stroke: ink2, 'stroke-width': 1.5, 'stroke-linejoin': 'round' });
   if (hist.length > 1) add('polyline', { points: hist.map((p) => `${X(p.pct_secoes)},${Y(p.margin_apurado)}`).join(' '), fill: 'none', stroke: ink, 'stroke-width': 2.5, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' });
@@ -756,6 +765,12 @@ function renderChart(box, hForce) {
     add('circle', { cx: X(100), cy: Y(pj.margin_votes), r: 4, fill: ink });
   }
   if (last) add('circle', { cx: X(last.pct_secoes), cy: Y(last.margin_apurado), r: 4.5, fill: ink, stroke: cssVar('--panel'), 'stroke-width': 2 });
+  if (cert) { // momento da certeza: a faixa de 90% fica toda de um lado do zero e não volta mais
+    const cx = X(cert.pct_secoes), win = cert.band[0] > 0 ? short('A') : short('B');
+    add('line', { x1: cx, x2: cx, y1: m.t, y2: m.t + ih, stroke: ink, 'stroke-width': 1.2, 'stroke-dasharray': '2 3' });
+    add('circle', { cx, cy: Y(cert.margin_proj), r: 4.5, fill: cssVar('--panel'), stroke: ink, 'stroke-width': 2 });
+    lateLabels.push([`certeza: ${win} ${hhmm(parseIso(cert.t))} (${fPct(cert.pct_secoes, 1)})`, cx + 6, m.t + 12, 'start', 11, ink, 700]);
+  }
   const vo = A?.virada_observada;
   const wLab = (t, fs) => t.length * fs * 0.56 + 6;
   let voSpan = null; // rótulos acima da linha do zero, à direita do ponto (abaixo dela fica "↓ B à frente")

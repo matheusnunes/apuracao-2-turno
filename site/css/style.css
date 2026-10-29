@@ -371,3 +371,4 @@ a.quiet { color: var(--muted); text-decoration: none; border-bottom: 1px dotted 
 @media (prefers-reduced-motion: reduce) { .scrim { transition: none; } }
 .ul-lines .arq { display: block; background: var(--panel-2); color: var(--ink); font-weight: 700; margin-top: .3rem; padding: .2rem .6rem; }
 .ul-lines .excl { opacity: .4; }
+.lgd .ln.dot { border-top-style: dotted; }
