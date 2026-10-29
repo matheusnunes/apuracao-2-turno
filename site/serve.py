@@ -9,6 +9,9 @@
 - gzip para JSON/JS/CSS/HTML/TopoJSON quando o cliente aceita (cache em memória por (caminho, mtime)).
 - MIME correto para .bin (application/octet-stream), .topojson/.geojson (application/json), .mjs.
 - Nunca lista diretórios, nunca sai de `site/`.
+- `/logs/{uf}/{mun}/{zona}-{secao}.txt`: log da urna (2T, com o 1T da mesma urna), descompactado e em UTF-8. Lê
+  `data/logs/raw/` (etl/logs_urna.py); se a urna ainda não foi baixada, busca no TSE pelo hash do estado do coletor
+  e guarda.
 """
 
 from __future__ import annotations
@@ -19,13 +22,51 @@ import gzip
 import http.server
 import mimetypes
 import os
+import re
 import socketserver
+import sqlite3
 import sys
 import threading
+import urllib.request
+import zipfile
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parent
+LOGS_RAW = ROOT.parent / "data/logs/raw"
+COLLECTOR_STATE = ROOT.parent / "data/live/state-live-e6258-p3221.sqlite"
+TSE_URNA = "https://resultados.tse.jus.br/oficial/ele2026/arquivo-urna/3221/dados"
+LOG_RE = re.compile(r"^/logs/([a-z]{2})/(\d{5})/(\d{4})-(\d{4})\.txt$")
+
+
+def urna_log(uf: str, mun: str, z: str, s: str) -> bytes | None:
+    """Texto (UTF-8) do log da urna da seção, ou None."""
+    p = LOGS_RAW / uf / mun / f"{z}-{s}.jez"
+    if not p.is_file():
+        try:
+            db = sqlite3.connect(f"file:{COLLECTOR_STATE}?mode=ro", uri=True)
+            row = db.execute("SELECT hash, nm FROM sec WHERE key=?", (f"{uf}-{mun}-{z}-{s}",)).fetchone()
+            db.close()
+        except sqlite3.Error:
+            row = None
+        if not row or not row[0] or not str(row[1]).endswith("-bu.dat"):
+            return None
+        url = f"{TSE_URNA}/{uf}/{mun}/{z}/{s}/{row[0]}/{row[1][:-len('-bu.dat')]}-log.jez"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "apuracao-sala-de-guerra/1.0 (uso pessoal)"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                body = r.read()
+        except OSError:
+            return None
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".tmp")
+        tmp.write_bytes(body)
+        tmp.replace(p)
+    try:
+        zf = zipfile.ZipFile(p)
+        return "".join(zf.read(n).decode("latin-1") for n in zf.namelist()).encode("utf-8")
+    except (OSError, zipfile.BadZipFile):
+        return None
 MIME = {
     ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
     ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -67,6 +108,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._serve(head=False)
 
     def _serve(self, head: bool):
+        m = LOG_RE.match(urlsplit(self.path).path)
+        if m:
+            return self._serve_log(m.groups(), head)
         p = self._resolve()
         if p is None:
             body = b"not found"
@@ -122,6 +166,33 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         if enc:
             self.send_header("Content-Encoding", enc)
+            self.send_header("Vary", "Accept-Encoding")
+        self.end_headers()
+        if not head:
+            try:
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+
+    def _serve_log(self, parts, head: bool):
+        data = urna_log(*parts)
+        if data is None:
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return
+        gz = "gzip" in (self.headers.get("Accept-Encoding") or "")
+        if gz:
+            data = gzip.compress(data, compresslevel=5)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "max-age=86400")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        if gz:
+            self.send_header("Content-Encoding", "gzip")
             self.send_header("Vary", "Accept-Encoding")
         self.end_headers()
         if not head:

@@ -6,6 +6,8 @@ export function freshness(feed, now = Date.now()) {
   const m = feed.manifest, h = m?.health || {}, an = feed.an, br = feed.agg?.br;
   const banners = [];
   const out = { banners, counting: false, source: m?.source || null };
+  // apuração encerrada (100% totalizado e analytics em 'final'): coletor parado e relógio de votação não são alerta
+  const done = an?.status?.phase === 'final' && (br?.ts ?? 0) > 0 && (br?.st ?? 0) >= br.ts;
 
   // --- coletor ---
   const gen = parseIso(m?.generated_at);
@@ -13,6 +15,8 @@ export function freshness(feed, now = Date.now()) {
   if (!m) {
     out.collector = { level: feed.err.manifest ? 'crit' : 'warn', text: 'Coletor: sem manifest', title: feed.err.manifest || 'aguardando o primeiro manifest.json' };
     if (feed.err.manifest && feed.ticks > 1) banners.push({ level: 'crit', text: `Sem dados do coletor (${feed.base}manifest.json: ${feed.err.manifest}). A tela mostra só a base do 1º turno.` });
+  } else if (done && age > 120) {
+    out.collector = { level: 'ok', text: 'Apuração encerrada · dados finais', title: `manifest v${m.version} gerado ${gen ? gen.toLocaleString('pt-BR') : '?'}` };
   } else {
     const lvl = age > 120 ? 'crit' : age > 60 ? 'warn' : 'ok';
     out.collector = { level: lvl, text: lvl === 'ok' ? `Coletor OK há ${fAge(age)}` : lvl === 'warn' ? `Coletor atrasado há ${fAge(age)}` : `Coletor parado há ${fAge(age)}`,
@@ -30,7 +34,7 @@ export function freshness(feed, now = Date.now()) {
   const st = br?.st ?? 0, ts = br?.ts ?? 0;
   const phase = an?.status?.phase;
   out.counting = st > 0 && (ts ? st < ts : true) && phase !== 'final';
-  const close = fimVotacao(now).getTime(), voting = now < close;
+  const close = fimVotacao(now).getTime(), voting = !done && now < close;
   if (!m) out.tse = { level: 'muted', text: 'TSE: —', title: '' };
   else if (!st) {
     out.tse = { level: 'muted', text: voting ? `TSE: apuração começa às ${fimTxt()}` : 'TSE: aguardando a 1ª totalização', title: stamp ? `arquivo BR de ${hhmm(stamp)}` : '' };

@@ -1,0 +1,28 @@
+{
+  "_nota": "Fatos externos sobre a prorrogação do 2º turno (25/10/2026). Vêm de reportagens que citam o TSE/STF; a nota oficial do TSE não pôde ser aberta (HTTP 403). Na tela entram só como conferência, com fonte, nunca como número calculado. Levantamento de 29/10/2026.",
+  "linha_do_tempo": [
+    {"hora": "13h22", "texto": "Campanha de Lula (PT) pede prorrogação, citando falta de ônibus em municípios da Bahia.", "fonte": "Poder360", "url": "https://www.poder360.com.br/poder-eleicoes-2026/zanin-prorroga-votacao-do-2o-turno-ate-19h/", "data": "2026-10-25", "confirmado": false},
+    {"hora": "15h42", "texto": "PT amplia o pedido para todos os estados.", "fonte": "Poder360", "url": "https://www.poder360.com.br/poder-eleicoes-2026/zanin-prorroga-votacao-do-2o-turno-ate-19h/", "data": "2026-10-25", "confirmado": false},
+    {"hora": "15h50", "texto": "Campanha de Flávio Bolsonaro (PL) pede ao TSE prorrogação em 19 cidades de SP, PR e SC (chuva, alagamentos, falta de energia).", "fonte": "Poder360", "url": "https://www.poder360.com.br/poder-eleicoes-2026/zanin-prorroga-votacao-do-2o-turno-ate-19h/", "data": "2026-10-25", "confirmado": false},
+    {"hora": "16h22", "texto": "PT vai ao STF pedindo prorrogação nacional; Cristiano Zanin é sorteado relator às 16h33.", "fonte": "Poder360", "url": "https://www.poder360.com.br/poder-eleicoes-2026/zanin-prorroga-votacao-do-2o-turno-ate-19h/", "data": "2026-10-25", "confirmado": false},
+    {"hora": "≈17h01–17h03", "texto": "Zanin estende a votação até as 19h (Brasília). Depois esclarece: só onde as urnas ainda não tinham sido encerradas. O TSE suspende a divulgação até as 19h.", "fonte": "Poder360; Correio da Manhã", "url": "https://www.poder360.com.br/poder-eleicoes-2026/zanin-prorroga-votacao-do-2o-turno-ate-19h/", "data": "2026-10-25", "confirmado": false}
+  ],
+  "tse": {
+    "votos_apos_17h": 34393,
+    "votos_17h_18h": 32399,
+    "votos_18h_19h": 1981,
+    "votos_apos_19h": 13,
+    "secoes_abertas_apos_17h10": 24268,
+    "avaliacao": "não houve nenhuma alteração advinda da decisão judicial",
+    "avaliacao_autor": "presidente do TSE",
+    "fonte": "Balanço do TSE de 27/10, reproduzido por Revista Oeste e CNN Brasil",
+    "url": "https://revistaoeste.com/politica/tse-informa-quantos-votos-foram-registrados-depois-das-17h-no-2o-turno/",
+    "url_oficial_nao_aberta": "https://www.tse.jus.br/comunicacao/noticias/2026/Outubro/eleicoes-2026-mais-de-34-mil-votos-foram-registrados-apos-as-17h-no-2o-turno",
+    "data": "2026-10-27",
+    "confirmado": false
+  },
+  "imprensa": [
+    {"texto": "29.001 dos votos depois das 17h foram entre 17h00 e 17h05; no 1º turno, cerca de 3,72 milhões votaram depois das 17h.", "fonte": "CNN Brasil, com dados do TSE", "url": "https://www.cnnbrasil.com.br/eleicoes/dados-tse-votacao-apos-prorrogacao/", "data": "2026-10-27", "confirmado": false},
+    {"texto": "Checagem classifica como falso que a prorrogação garantiu a vitória de Lula.", "fonte": "Gazeta do Paraná", "url": "https://gazetadoparana.com.br/publico/prorrogacao-da-votacao-foi-fraude-gazeta-checa-15-declaracoes-feitas-na-assembleia-legislativa-do", "data": "2026-10-26", "confirmado": false}
+  ]
+}

@@ -9,6 +9,8 @@ import { freshness, renderBadges, renderBanners } from './health.js';
 import { loadMeta, loadBase, loadH3, loadPlaceMeta } from './base.js';
 import * as MA from './mapagg.js';
 import { PAISES, CIDADES } from './exterior.js';
+import { loadProrrog, prorrog, lateShare } from './prorrog.js';
+import { openUrnaLog } from './urnalog.js';
 
 const { F, K, MODES, MODE } = MA;
 const HEAVY_MIN_MS = 30000;        // recomputação/recoloração por dado novo: no máximo a cada 30 s
@@ -20,7 +22,7 @@ const REG_ORDER = ['N', 'NE', 'CO', 'SE', 'S', 'ZZ'];
 const PREF = loadPrefs();
 const S = {
   cand: PREF.cand, theme: PREF.theme, fade: PREF.fade, resOff: PREF.resOff,
-  mode: 'ritmo', layer: 'auto', ufFilter: '', focus: { type: 'br' }, rankTab: 'lula', rankBy: 'muni', extIso: '',
+  mode: 'ritmo', layer: 'auto', ufFilter: '', focus: { type: 'br' }, rankTab: 'lula', rankBy: 'muni', extIso: '', logSec: -1,
   tv: { on: window.innerWidth >= 1100, idx: -1, viewStart: 0, pausedUntil: 0, views: [], cur: null, lastSeen: {} },
   bootAt: Date.now(), lastUserAt: 0,
 };
@@ -127,7 +129,7 @@ function heavyUpdate(dataDriven) {
   lastHeavyAt = now;
   const t0 = performance.now();
   safe('zonas', () => { if (mapDirty.zones) { MA.updateZones(B, ZA, an()?.zones); mapDirty.zones = false; } });
-  safe('locais', () => { MA.computePlaces(B, FEED?.sec, ZA, PLACE); mapDirty.places = false; });
+  safe('locais', () => { MA.computePlaces(B, FEED?.sec, ZA, PLACE, prorrog()?.S || null); mapDirty.places = false; });
   safe('células', () => { if (CELL[CELLS_RES] && B.h3[CELLS_RES]) MA.aggregateCells(B, CELLS_RES, PLACE, CELL[CELLS_RES]); });
   const t1 = performance.now();
   recolor();
@@ -143,7 +145,15 @@ async function ensureRes(res) {
 
 function dimFor(ufIdx) { return S.ufFilter && ufIdx !== B.ufIdx[S.ufFilter] ? 0.22 : 1; }
 
+/** dados dos logs de urna: carrega na primeira vez que um modo/vista precisa deles e redesenha */
+function ensurePr() {
+  if (prorrog()) return true;
+  loadProrrog(B).then(() => { mapDirty.places = true; heavyUpdate(false); safe('direita', renderRight); safe('legenda', renderLegend); })
+    .catch((e) => logErr('prorrogação', e));
+  return false;
+}
 function munValue(mode, m) {
+  if (mode.src === 'pr') { const P = prorrog(); return { v: P ? lateShare(P.mun, m, mode.key === 'tardio1' ? 1 : 2) : null, cov: 1 }; }
   if (mode.src === 'base') {
     const M = B.mun, v = M.l1[m] + M.o1[m] + M.x1[m];
     return { v: v > 0 ? 100 * (M.l1[m] - M.o1[m]) / v : null, cov: 1 };
@@ -156,6 +166,7 @@ function munValue(mode, m) {
   return { v: MA.modeValue(mode, c, null, reqDelta()), cov: c.cov, c };
 }
 function ufValue(mode, u) {
+  if (mode.src === 'pr') { const P = prorrog(); return { v: P ? lateShare(P.uf, B.ufIdx[u], mode.key === 'tardio1' ? 1 : 2) : null, cov: 1 }; }
   const A = agg()?.uf?.[u], off = MA.official(A);
   if (mode.src === 'base') return { v: null, cov: 1 }; // recolor() pinta a UF no 1T pela soma dos municípios
   if (mode.src === 'cov') return { v: off.pct > 0 ? off.pct : null, cov: 1 }; // 0% = sem cor, distinto de 'pouco apurado'
@@ -168,6 +179,7 @@ function ufValue(mode, u) {
 function recolor() {
   if (!B || !RAMPS) return;
   const mode = MODE[S.mode];
+  if (mode.src === 'pr') ensurePr();
   const M = B.M;
   if (!COLORS.muni) COLORS.muni = new Uint8Array(M * 4);
   MUNV = MUNV || new Array(M);
@@ -377,6 +389,7 @@ function onHover(info) {
   if (!info || !info.layer || info.index < 0 || !['muni', 'uf', 'hex', 'places', 'ext'].includes(info.layer.id)) { tt.hidden = true; return; }
   tt.replaceChildren();
   const row = (k, v) => { const r = el('div', 'r'); r.append(el('span', null, k), el('b', null, v)); tt.append(r); };
+  if (MODE[S.mode].src === 'pr' && prorrog()) { prHover(info, tt, row); tt.hidden = false; placeTip(tt, info); return; }
   const req = reqDelta();
   let c = null, title = '', sub = '';
   if (info.layer.id === 'ext') {
@@ -424,6 +437,22 @@ function onHover(info) {
   row('Δ abstenção', `${fPP(c.dAbst)}${isNum(c.dAbstV) ? ` (${fN(c.dAbstV, true)} ausentes)` : ''}`);
   row('Δ brancos+nulos', `${fPP(c.dBnComp)} do comparecimento`);
   tt.hidden = false; placeTip(tt, info);
+}
+/** hover nos modos de votos após 17h: 2º turno × 1º turno na mesma urna */
+function prHover(info, tt, row) {
+  const P = prorrog(), id = info.layer.id;
+  let t = '', n2 = 0, t2 = 0, n1 = 0, t1 = 0, c2 = null, a2 = null, ns = null;
+  const fromAcc = (a, o) => { n2 = a[o + 18]; t2 = a[o + 19]; n1 = a[o + 20]; t1 = a[o + 21]; ns = a[o]; };
+  if (id === 'muni' || id === 'ext') { const m = info.object.i, A = P.mun; t = munName(m); n2 = A.n2[m]; t2 = A.t2[m]; n1 = A.n1[m]; t1 = A.t1[m]; c2 = A.c2[m]; a2 = A.a2[m]; ns = A.s[m]; }
+  else if (id === 'uf') { const i = info.object.i, A = P.uf; t = ufName(B.ufOrder[i]); n2 = A.n2[i]; t2 = A.t2[i]; n1 = A.n1[i]; t1 = A.t1[i]; c2 = A.c2[i]; a2 = A.a2[i]; ns = A.s[i]; }
+  else if (id === 'hex') { t = `Hexágono H3 · res ${CELLS_RES}`; fromAcc(CELL[CELLS_RES], info.object.i * K); }
+  else { const p = info.index; t = `Local de votação · ${munName(B.L.mun[p])}`; fromAcc(PLACE, p * K); const te = el('div', 't', t); tt.append(te); placeTitle(p, (r) => { if (!tt.hidden) te.textContent = titleCase(r[0]); }); t = ''; }
+  if (t) tt.append(el('div', 't', t));
+  tt.append(el('div', 'lg-sub', `${isNum(ns) ? fInt(ns) + ' seções com log · ' : ''}hora de Brasília${id === 'ext' ? ' (exterior: hora local)' : ''}`));
+  row('2º turno · depois das 17h', n2 > 0 ? `${fInt(t2)} de ${fInt(n2)} votos (${fPct(100 * t2 / n2, 2)})` : '—');
+  if (isNum(c2)) row('2º turno · depois das 18h', fInt(c2));
+  if (isNum(a2)) row('Seções abertas após 17h10', fInt(a2));
+  row('1º turno · depois das 17h', n1 > 0 ? `${fInt(t1)} de ${fInt(n1)} votos (${fPct(100 * t1 / n1, 2)})` : '—');
 }
 function placeTip(tt, info) {
   const box = $('#mapwrap').getBoundingClientRect();
@@ -992,7 +1021,7 @@ function placeCard(p) {
   kp.append(tile('Seções', `${n} urnas`, ''), tile('Zona eleitoral', String(B.zon.zona[z]), ''), tile('Eleitores aptos', fInt(aptos), ''), tile('Votos 2T (com BU)', nbu ? fInt(comp2) : '—', `${nbu} de ${n} boletins`));
   c.append(kp, addr);
   const wrap = el('div', 'sec-scroll'), tbl = el('table', 'tbl'), hr = el('tr');
-  for (const t of ['Seção', 'Status', 'Aptos', 'Comp. 2T', 'Abst. 1T→2T', `${short('A')} 1T→2T`, `${short('B')} 1T→2T`, 'Δ margem/100']) hr.append(el('th', null, t));
+  for (const t of ['Seção', 'Status', 'Aptos', 'Comp. 2T', 'Abst. 1T→2T', `${short('A')} 1T→2T`, `${short('B')} 1T→2T`, 'Δ margem/100', 'Log']) hr.append(el('th', null, t));
   tbl.append(hr);
   const zs = ZA.state[z], zp = ZA.pct[z];
   const idxs = []; for (let k = 0; k < n; k++) idxs.push(B.perm[st + k]);
@@ -1015,11 +1044,24 @@ function placeCard(p) {
       const it = (t) => { const e = el('td', 'est', t); return e; };
       tr.append(it('~' + fInt(Math.round(C2))), it(`${nf1.format(ab1)}→~${nf1.format(pa / sum * 100)}%`), it(`${l1}→~${Math.round(L2)}`), it(`${o1}→~${Math.round(O2)}`), it(fM(dm)));
     } else tr.append(el('td', null, '—'), el('td', null, `${isNum(ab1) ? nf1.format(ab1) : '—'}→…`), el('td', null, `${l1}→…`), el('td', null, `${o1}→…`), el('td', null, '—'));
+    const lb = el('button', 'logbtn', 'ver log'); lb.title = 'Log da urna: horário de cada voto, abertura e encerramento (1º e 2º turno)';
+    lb.onclick = () => { userAct(); openSecLog(s, p); };
+    const tdl = el('td'); tdl.append(lb); tr.append(tdl);
     tbl.append(tr);
   }
   wrap.append(tbl); c.append(wrap);
   c.append(el('div', 'lg-note', '“boletim recebido” = observado na urna. “apurada”/“zona N%” = zona já totalizada (toda ou em parte) no agregado oficial, boletim ainda não chegou. Em itálico com ~ = estimado pelo swing da zona sobre o 1º turno da seção.'));
   return c;
+}
+
+/** abre o log da urna da seção s (índice da base); p = local, para o título */
+function openSecLog(s, p = B.S.place[s]) {
+  const m = B.S.mun[s], z = B.S.zone[s], u = B.mun.uf[m], cd = B.mun.cd_mun[m], zn = B.zon.zona[z], sn = B.S.secao[s];
+  const info = { uf: u, cdMun: cd, zona: zn, secao: sn, isExt: u === 'zz', title: `Seção ${sn} · Zona ${zn} · ${munName(m)}`, sub: '',
+    onClose: () => { S.logSec = -1; writeHash(); } };
+  S.logSec = s; writeHash();
+  openUrnaLog(info);
+  if (p >= 0) placeTitle(p, (r) => { const e = document.querySelector('.ul-head .sub'); if (e) e.textContent = `${titleCase(r[0])} · ${titleCase(r[1])}`; });
 }
 
 // ---------------- barra superior ----------------
@@ -1081,6 +1123,8 @@ function legendTexts(mode) {
     proj: ['Projeção do que falta apurar (por UF)', 'Margem projetada pelo analytics nos votos que faltam; mais opaco = mais seções por apurar.', [`favorece ${short('B')}`, `favorece ${short('A')}`]],
     cob: ['Cobertura da apuração', 'Município/UF: % totalizado (oficial). Hexágono/local: % com boletim. Sem cor = nada apurado ainda.', ['>0%', '100%']],
     margem1: ['Margem no 1º turno (% dos válidos)', `Base de comparação: ${short('A')} − ${short('B')} no 1º turno.`, [`${short('B')} à frente`, `${short('A')} à frente`]],
+    tardio2: ['Votos depois das 17h · 2º turno (% dos votos)', 'Logs de urna: hora em que cada voto foi computado (Brasília). Mesma escala do 1º turno.', ['nenhum', '10%+']],
+    tardio1: ['Votos depois das 17h · 1º turno (% dos votos)', 'Mesma urna no 1º turno, sem prorrogação: quem estava na fila às 17h votou depois. Mesma escala do 2º turno.', ['nenhum', '10%+']],
   }[mode.key];
 }
 function renderLegend() {
@@ -1098,6 +1142,10 @@ function renderLegend() {
   const e = el('div', 'lg-ends'); e.append(el('span', null, '◀ ' + ends[0]), el('span', null, ends[1] + ' ▶'));
   b.append(bar, ticks, e);
   const L = effLayer();
+  if (mode.src === 'pr') {
+    b.append(el('div', 'lg-note', prorrog() ? 'Fonte: logs de urna do TSE (2º turno; o log traz também o 1º turno da mesma urna). Exterior em hora local. Sem cor = sem log.' : 'Carregando os logs de urna…'));
+    return;
+  }
   b.append(el('div', 'lg-note', `${EXT?.list.length && extFocus() ? 'Exterior: cada círculo é uma cidade com seção eleitoral; área proporcional aos votos válidos. ' : ''}${L === 'muni' ? 'Municípios: agregado oficial e swing do analytics. ' : L === 'uf' ? 'UFs: termômetro do analytics. ' : 'Cor cheia = observado na urna (boletim); cor lavada = estimado pelo swing da zona. '}${S.fade && mode.src !== 'cov' && mode.src !== 'base' ? 'Mais transparente = menor parte apurada. ' : ''}Sem cor = ainda sem apuração.`));
 }
 
@@ -1228,6 +1276,7 @@ function writeHash() {
     const f = S.focus;
     if (f.type === 'region' || f.type === 'uf' || f.type === 'muni' || f.type === 'place') p.set('f', `${f.type}:${f.id}`);
     if (S.tv.on) { p.set('tvi', String(Math.max(0, S.tv.idx))); }
+    if (S.logSec >= 0) p.set('log', String(S.logSec));
     if (map) { const c = map.getCenter(); p.set('z', map.getZoom().toFixed(2)); p.set('c', `${c.lng.toFixed(4)},${c.lat.toFixed(4)}`); }
     history.replaceState(null, '', `${location.pathname}${location.search}#${p.toString()}`);
   }, 400);
@@ -1248,6 +1297,7 @@ function readHash() {
     else if ((t === 'muni' && +id < B.M) || (t === 'place' && +id < B.P)) S.focus = { type: t, id: +id };
   }
   if (p.has('tvi')) r.tvi = Math.max(0, +p.get('tvi') || 0);
+  if (p.has('log') && +p.get('log') >= 0 && +p.get('log') < B.N) r.log = +p.get('log');
   if (p.get('c') && p.get('z')) { const [lng, lat] = p.get('c').split(',').map(Number); const z = Number(p.get('z')); if ([lng, lat, z].every(isFinite)) r.view = { c: [lng, lat], z }; }
   return r;
 }
@@ -1342,7 +1392,7 @@ function wireSearch() {
           const sn = +sm[1], st = B.zon.sec_start[i];
           for (let k = 0; k < B.zon.n[i]; k++) {
             const s = st + k;
-            if (B.S.secao[s] === sn) { const p = B.S.place[s]; items.push({ t: `Seção ${sn} · Zona ${z} · ${u.toUpperCase()}`, s: `${munName(m)}${p < 0 ? ' · sem coordenada própria' : ''}`, f: p >= 0 ? { type: 'place', id: p } : { type: 'muni', id: m } }); }
+            if (B.S.secao[s] === sn) { const p = B.S.place[s]; items.push({ t: `Seção ${sn} · Zona ${z} · ${u.toUpperCase()}`, s: `${munName(m)}${p < 0 ? ' · sem coordenada própria' : ''} · abre o log da urna`, f: p >= 0 ? { type: 'place', id: p } : { type: 'muni', id: m }, sec: s }); }
           }
         } else items.push({ t: `Zona ${z} · ${munName(m)}`, s: `${B.zon.n[i]} seções · ${fN(B.zon.a2[i])} aptos`, f: { type: 'muni', id: m } });
       }
@@ -1356,7 +1406,7 @@ function wireSearch() {
     if (!items.length) items.push({ t: 'Nada encontrado', s: 'Tente “Recife”, “zona 12 SP” ou “zona 12 seção 40 SP”', f: null });
     for (const it of items.slice(0, 12)) {
       const b = el('button'); b.append(el('div', null, it.t), el('small', null, it.s));
-      b.onclick = () => { if (it.f) { userAct(); if (it.iso) { S.extIso = it.iso; setFocus(it.f); flyToCountry(it.iso); } else setFocus(it.f, true); } res.hidden = true; inp.value = ''; };
+      b.onclick = () => { if (it.f) { userAct(); if (it.iso) { S.extIso = it.iso; setFocus(it.f); flyToCountry(it.iso); } else setFocus(it.f, true); if (it.sec != null) openSecLog(it.sec); } res.hidden = true; inp.value = ''; };
       res.append(b);
     }
     res.hidden = false;
@@ -1417,6 +1467,7 @@ async function boot() {
       if (restored?.tvi != null) { S.tv.views = buildTvViews(); S.tv.idx = Math.min(restored.tvi, S.tv.views.length) - 1; }
       tvNext();
     } else if (restored?.view == null && S.focus.type !== 'br') flyToFocus(S.focus, 0);
+    if (restored?.log != null) safe('log da urna', () => openSecLog(restored.log));
   });
   setInterval(() => {
     safe('frescor', renderFresh); safe('tv', tvLoop); safe('relógio', renderClock);

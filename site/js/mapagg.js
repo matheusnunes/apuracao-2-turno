@@ -4,8 +4,9 @@
 import { mix, hex2rgb, isNum } from './fmt.js';
 
 // campos dos acumuladores (Float64, K por unidade)
-export const F = { nSec: 0, nCnt: 1, nBU: 2, nEst: 3, aAll: 4, cA1: 5, cA2: 6, cC1: 7, cL1: 8, cO1: 9, cBN1: 10, C2: 11, L2: 12, O2: 13, BN2: 14, zPct: 15, cX1: 16, nHasBU: 17 };
-export const K = 18;
+// pN2..pT1: logs de urna (prorrog.js), votos no log e votos a partir das 17h, 2º turno e 1º turno na mesma urna
+export const F = { nSec: 0, nCnt: 1, nBU: 2, nEst: 3, aAll: 4, cA1: 5, cA2: 6, cC1: 7, cL1: 8, cO1: 9, cBN1: 10, C2: 11, L2: 12, O2: 13, BN2: 14, zPct: 15, cX1: 16, nHasBU: 17, pN2: 18, pT2: 19, pN1: 20, pT1: 21 };
+export const K = 22;
 const SRC = { obs: 1, est: 2, shrunk: 3 };
 
 /** Zona/município 100% apurado: se o analytics publicar o swing bruto (`raw: {dl, do, dbn, dabst}`), ele vale
@@ -40,8 +41,8 @@ export function updateZones(B, ZA, zones) {
   ZA.unknown = unknown; ZA.version++;
 }
 
-/** soma por local (Float64Array P×K reaproveitado). sec = Int32Array N×8 ou null. */
-export function computePlaces(B, sec, ZA, out) {
+/** soma por local (Float64Array P×K reaproveitado). sec = Int32Array N×8 ou null; pr = colunas de prorrog.js ou null. */
+export function computePlaces(B, sec, ZA, out, pr = null) {
   out.fill(0);
   const S = B.S, N = B.N, place = S.place, zone = S.zone, a1v = S.a1, c1v = S.c1, l1v = S.l1, o1v = S.o1, x1v = S.x1, bn1v = S.bn1, a2v = S.a2;
   const st = ZA.state, dlv = ZA.dl, dov = ZA.do, dbnv = ZA.dbn, dabv = ZA.dabst, pctv = ZA.pct;
@@ -50,6 +51,7 @@ export function computePlaces(B, sec, ZA, out) {
     const p = place[s]; if (p < 0) continue;
     const o = p * K, z = zone[s];
     out[o] += 1; out[o + 4] += a2v[s]; out[o + 15] += pctv[z];
+    if (pr) { const fl = pr.flags[s]; if (fl & 1) { out[o + 18] += pr.n2[s]; out[o + 19] += pr.t2[s]; } if (fl & 2) { out[o + 20] += pr.n1[s]; out[o + 21] += pr.t1[s]; } }
     const a1 = a1v[s], c1 = c1v[s], l1 = l1v[s], o1 = o1v[s], bn1 = bn1v[s];
     let A2, C2, L2, O2, BN2;
     const q = s * 8;
@@ -111,6 +113,7 @@ export function cmpFromAgg(a, o = 0) {
 export function aggModeValue(key, a, o, req, out) {
   const nSec = a[o], n = a[o + 1];
   out[1] = nSec ? n / nSec : 0; out[2] = n ? a[o + 2] / n : NaN; out[0] = NaN;
+  if (key === 'tardio2' || key === 'tardio1') { const t2 = key === 'tardio2', nv = a[o + (t2 ? 18 : 20)]; out[0] = nv > 0 ? 100 * a[o + (t2 ? 19 : 21)] / nv : NaN; out[1] = 1; out[2] = NaN; return; }
   if (key === 'cob') { const v = nSec ? 100 * a[o + 2] / nSec : 0; out[0] = v > 0 ? v : NaN; out[1] = 1; out[2] = NaN; return; } // 0% = sem cor
   const cA1 = a[o + 5], cA2 = a[o + 6];
   if (!n || cA1 <= 0 || cA2 <= 0) return;
@@ -205,6 +208,9 @@ export const MODES = [
   { key: 'proj', label: 'Projeção · votos que faltam', kind: 'div', th: [2, 5, 10, 20, 35], pos: 'A', neg: 'B', src: 'proj' },
   { key: 'cob', label: '% apurado', kind: 'seq', th: [0, 5, 20, 50, 80, 99.5], hue: 'gray', src: 'cov' },
   { key: 'margem1', label: 'Margem no 1º turno (base)', kind: 'div', th: [2, 5, 10, 20, 35], pos: 'A', neg: 'B', src: 'base' },
+  // logs de urna: % dos votos computados a partir das 17h (Brasília). Mesma escala nos dois turnos, para comparar.
+  { key: 'tardio2', label: 'Votos após 17h · 2º turno', kind: 'seq', th: [0.01, 0.5, 1, 2, 5, 10], hue: 'amber', src: 'pr' },
+  { key: 'tardio1', label: 'Votos após 17h · 1º turno', kind: 'seq', th: [0.01, 0.5, 1, 2, 5, 10], hue: 'amber', src: 'pr' },
 ];
 export const MODE = Object.fromEntries(MODES.map((m) => [m.key, m]));
 
@@ -226,7 +232,7 @@ export function modeValue(mode, c, off, req) {
 export function buildRamps(cand, theme) {
   const dark = theme === 'dark';
   const neutral = dark ? '#4a4d55' : '#d6d5cf';
-  const hue = { A: cand.A.color, B: cand.B.color, teal: '#1f9c8e', mag: '#b5179e', gray: dark ? '#f2f1ee' : '#2b2b2b' };
+  const hue = { A: cand.A.color, B: cand.B.color, teal: '#1f9c8e', mag: '#b5179e', amber: dark ? '#f2a516' : '#c47a00', gray: dark ? '#f2f1ee' : '#2b2b2b' };
   const steps = [0.3, 0.47, 0.64, 0.82, 1.0];
   const arm = (h) => steps.map((t, i) => (i === 4 && !dark ? mix(h, '#000000', 0.12) : mix(neutral, h, t)));
   const R = { neutral: hex2rgb(neutral), noData: dark ? [120, 124, 132] : [190, 189, 184] };
@@ -264,6 +270,6 @@ export function writeColor(out, i, R, mode, v, { level, cov = 1, obs = null, dim
   const base = level === 'place' ? 240 : level === 'cell' ? 205 : 195;
   let k = 1;
   if (mode.src === 'proj') k = cov <= 0 ? 0.08 : 0.25 + 0.75 * cov;
-  else if (fade && mode.src !== 'cov' && mode.src !== 'base') k = 0.3 + 0.7 * Math.max(0, Math.min(1, cov));
+  else if (fade && mode.src !== 'cov' && mode.src !== 'base' && mode.src !== 'pr') k = 0.3 + 0.7 * Math.max(0, Math.min(1, cov));
   out[o] = Math.round(c[0]); out[o + 1] = Math.round(c[1]); out[o + 2] = Math.round(c[2]); out[o + 3] = Math.round(base * k * dim);
 }
