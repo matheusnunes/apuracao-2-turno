@@ -156,7 +156,10 @@ function ensurePr() {
   return prPromise;
 }
 function munValue(mode, m) {
-  if (mode.src === 'pr') { const P = prorrog(); return { v: P && !isExt(m) ? lateShare(P.mun, m, mode.key === 'tardio1' ? 1 : 2) : null, cov: 1 }; } // exterior: hora local, fica sem cor
+  if (mode.src === 'pr') { // exterior: hora local, fica sem cor
+    const P = prorrog(); if (!P || isExt(m)) return { v: null, cov: 1 };
+    return { v: mode.key === 'abertas' ? (P.mun.s[m] ? 100 * P.mun.a2[m] / P.mun.s[m] : null) : lateShare(P.mun, m, mode.key === 'tardio1' ? 1 : 2), cov: 1 };
+  }
   if (mode.src === 'base') {
     const M = B.mun, v = M.l1[m] + M.o1[m] + M.x1[m];
     return { v: v > 0 ? 100 * (M.l1[m] - M.o1[m]) / v : null, cov: 1 };
@@ -169,7 +172,10 @@ function munValue(mode, m) {
   return { v: MA.modeValue(mode, c, null, reqDelta()), cov: c.cov, c };
 }
 function ufValue(mode, u) {
-  if (mode.src === 'pr') { const P = prorrog(); return { v: P && u !== 'zz' ? lateShare(P.uf, B.ufIdx[u], mode.key === 'tardio1' ? 1 : 2) : null, cov: 1 }; }
+  if (mode.src === 'pr') {
+    const P = prorrog(), i = B.ufIdx[u]; if (!P || u === 'zz') return { v: null, cov: 1 };
+    return { v: mode.key === 'abertas' ? (P.uf.s[i] ? 100 * P.uf.a2[i] / P.uf.s[i] : null) : lateShare(P.uf, i, mode.key === 'tardio1' ? 1 : 2), cov: 1 };
+  }
   const A = agg()?.uf?.[u], off = MA.official(A);
   if (mode.src === 'base') return { v: null, cov: 1 }; // recolor() pinta a UF no 1T pela soma dos municípios
   if (mode.src === 'cov') return { v: off.pct > 0 ? off.pct : null, cov: 1 }; // 0% = sem cor, distinto de 'pouco apurado'
@@ -445,7 +451,7 @@ function onHover(info) {
 function prHover(info, tt, row) {
   const P = prorrog(), id = info.layer.id;
   let t = '', n2 = 0, t2 = 0, n1 = 0, t1 = 0, c2 = null, a2 = null, ns = null;
-  const fromAcc = (a, o) => { n2 = a[o + 18]; t2 = a[o + 19]; n1 = a[o + 20]; t1 = a[o + 21]; ns = a[o]; };
+  const fromAcc = (a, o) => { n2 = a[o + 18]; t2 = a[o + 19]; n1 = a[o + 20]; t1 = a[o + 21]; ns = a[o + 23]; a2 = a[o + 22]; };
   if (id === 'muni' || id === 'ext') { const m = info.object.i, A = P.mun; t = munName(m); n2 = A.n2[m]; t2 = A.t2[m]; n1 = A.n1[m]; t1 = A.t1[m]; c2 = A.c2[m]; a2 = A.a2[m]; ns = A.s[m]; }
   else if (id === 'uf') { const i = info.object.i, A = P.uf; t = ufName(B.ufOrder[i]); n2 = A.n2[i]; t2 = A.t2[i]; n1 = A.n1[i]; t1 = A.t1[i]; c2 = A.c2[i]; a2 = A.a2[i]; ns = A.s[i]; }
   else if (id === 'hex') { t = `Hexágono H3 · res ${CELLS_RES}`; fromAcc(CELL[CELLS_RES], info.object.i * K); }
@@ -1177,6 +1183,7 @@ function legendTexts(mode) {
     cob: ['Cobertura da apuração', 'Município/UF: % totalizado (oficial). Hexágono/local: % com boletim. Sem cor = nada apurado ainda.', ['>0%', '100%']],
     margem1: ['Margem no 1º turno (% dos válidos)', `Base de comparação: ${short('A')} − ${short('B')} no 1º turno.`, [`${short('B')} à frente`, `${short('A')} à frente`]],
     tardio2: ['Votos depois das 17h · 2º turno (por 10 mil votos)', 'Logs de urna: hora em que cada voto foi computado (Brasília). Mesma escala do 1º turno.', ['nenhum', '1.000+']],
+    abertas: ['Urnas abertas depois das 17h10 · 2º turno (% das urnas)', 'Encerramento registrado no log da urna (hora de Brasília). O TSE usa 17h10 como corte técnico do fechamento.', ['nenhuma', '80%+']],
     tardio1: ['Votos depois das 17h · 1º turno (por 10 mil votos)', 'Mesma urna no 1º turno, sem prorrogação: quem estava na fila às 17h votou depois. Mesma escala do 2º turno.', ['nenhum', '1.000+']],
   }[mode.key];
 }

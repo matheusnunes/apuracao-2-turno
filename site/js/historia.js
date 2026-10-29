@@ -162,7 +162,7 @@ export function buildStory(ctx) {
   const e03 = pctEncerradas(PR, 2, 17 * 60 + 4), e03b = pctEncerradas(PR, 1, 17 * 60 + 4);
   if (isNum(e03)) add({ ch: 5, key: 'pr-relogio', title: 'Quando a decisão saiu', hero: fPct(e03, 0), heroSub: 'das urnas do 2º turno já tinham encerrado até 17h03',
     text: `A prorrogação só valia onde a urna seguia aberta, e quase todas fechavam no minuto das 17h. No 1º turno, que não teve prorrogação, eram ${fPct(e03b, 0)} até 17h03: a fila era maior.`,
-    viz: () => relogioChart(PR), map: { mode: 'tardio2', layer: 'auto', focus: br }, dur: 16 });
+    viz: () => relogioChart(PR), map: { mode: 'abertas', layer: 'hex', focus: br }, dur: 16 });
   add({ ch: 5, key: 'pr-regua', title: 'A régua', hero: fInt(c.margem), heroSub: 'votos de diferença: é isso que a prorrogação teria de explicar',
     text: 'O log de cada urna registra a hora de cada voto. Dá para contar quantos votaram depois das 17h; não dá para saber em quem.', map: { mode: 'tardio2', layer: 'auto', focus: br } });
   add({ ch: 5, key: 'pr-tardios', title: 'Quantos votaram depois das 17h', hero: fInt(c.tardios), heroSub: `${fPct(c.pct_votos_apos_17h, 3)} dos votos${parcial}`,

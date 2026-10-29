@@ -4,9 +4,10 @@
 import { mix, hex2rgb, isNum } from './fmt.js';
 
 // campos dos acumuladores (Float64, K por unidade)
-// pN2..pT1: logs de urna (prorrog.js), votos no log e votos a partir das 17h, 2º turno e 1º turno na mesma urna
-export const F = { nSec: 0, nCnt: 1, nBU: 2, nEst: 3, aAll: 4, cA1: 5, cA2: 6, cC1: 7, cL1: 8, cO1: 9, cBN1: 10, C2: 11, L2: 12, O2: 13, BN2: 14, zPct: 15, cX1: 16, nHasBU: 17, pN2: 18, pT2: 19, pN1: 20, pT1: 21 };
-export const K = 22;
+// pN2..pT1: logs de urna (prorrog.js), votos no log e votos a partir das 17h, 2º turno e 1º turno na mesma urna;
+// pA2/pS: urnas do 2º turno encerradas às 17h10 ou depois / urnas com log
+export const F = { nSec: 0, nCnt: 1, nBU: 2, nEst: 3, aAll: 4, cA1: 5, cA2: 6, cC1: 7, cL1: 8, cO1: 9, cBN1: 10, C2: 11, L2: 12, O2: 13, BN2: 14, zPct: 15, cX1: 16, nHasBU: 17, pN2: 18, pT2: 19, pN1: 20, pT1: 21, pA2: 22, pS: 23 };
+export const K = 24;
 const SRC = { obs: 1, est: 2, shrunk: 3 };
 
 /** Zona/município 100% apurado: se o analytics publicar o swing bruto (`raw: {dl, do, dbn, dabst}`), ele vale
@@ -51,7 +52,7 @@ export function computePlaces(B, sec, ZA, out, pr = null) {
     const p = place[s]; if (p < 0) continue;
     const o = p * K, z = zone[s];
     out[o] += 1; out[o + 4] += a2v[s]; out[o + 15] += pctv[z];
-    if (pr) { const fl = pr.flags[s]; if (fl & 1) { out[o + 18] += pr.n2[s]; out[o + 19] += pr.t2[s]; } if (fl & 2) { out[o + 20] += pr.n1[s]; out[o + 21] += pr.t1[s]; } }
+    if (pr) { const fl = pr.flags[s]; if (fl & 1) { out[o + 18] += pr.n2[s]; out[o + 19] += pr.t2[s]; out[o + 23] += 1; if (pr.e2[s] >= 1030) out[o + 22] += 1; } if (fl & 2) { out[o + 20] += pr.n1[s]; out[o + 21] += pr.t1[s]; } }
     const a1 = a1v[s], c1 = c1v[s], l1 = l1v[s], o1 = o1v[s], bn1 = bn1v[s];
     let A2, C2, L2, O2, BN2;
     const q = s * 8;
@@ -114,6 +115,7 @@ export function aggModeValue(key, a, o, req, out) {
   const nSec = a[o], n = a[o + 1];
   out[1] = nSec ? n / nSec : 0; out[2] = n ? a[o + 2] / n : NaN; out[0] = NaN;
   if (key === 'tardio2' || key === 'tardio1') { const t2 = key === 'tardio2', nv = a[o + (t2 ? 18 : 20)]; out[0] = nv > 0 ? 1e4 * a[o + (t2 ? 19 : 21)] / nv : NaN; out[1] = 1; out[2] = NaN; return; } // por 10 mil votos
+  if (key === 'abertas') { const ns = a[o + 23]; out[0] = ns > 0 ? 100 * a[o + 22] / ns : NaN; out[1] = 1; out[2] = NaN; return; }
   if (key === 'cob') { const v = nSec ? 100 * a[o + 2] / nSec : 0; out[0] = v > 0 ? v : NaN; out[1] = 1; out[2] = NaN; return; } // 0% = sem cor
   const cA1 = a[o + 5], cA2 = a[o + 6];
   if (!n || cA1 <= 0 || cA2 <= 0) return;
@@ -211,6 +213,7 @@ export const MODES = [
   // logs de urna: votos computados a partir das 17h (Brasília) por 10 mil votos. Mesma escala nos dois turnos, para comparar.
   { key: 'tardio2', label: 'Votos após 17h · 2º turno', kind: 'seq', th: [1, 50, 100, 200, 500, 1000], hue: 'teal', src: 'pr' },
   { key: 'tardio1', label: 'Votos após 17h · 1º turno', kind: 'seq', th: [1, 50, 100, 200, 500, 1000], hue: 'teal', src: 'pr' },
+  { key: 'abertas', label: 'Urnas abertas após 17h10 · 2º turno', kind: 'seq', th: [0.5, 2, 5, 15, 40, 80], hue: 'teal', src: 'pr' },
 ];
 export const MODE = Object.fromEntries(MODES.map((m) => [m.key, m]));
 
