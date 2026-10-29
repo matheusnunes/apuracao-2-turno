@@ -11,6 +11,8 @@ import * as MA from './mapagg.js';
 import { PAISES, CIDADES } from './exterior.js';
 import { loadProrrog, prorrog, lateShare } from './prorrog.js';
 import { openUrnaLog } from './urnalog.js';
+import { curveChart, reguaBars } from './prcharts.js';
+import { buildStory, loadHistoria, historiaData, CHAPTERS } from './historia.js';
 
 const { F, K, MODES, MODE } = MA;
 const HEAVY_MIN_MS = 30000;        // recomputação/recoloração por dado novo: no máximo a cada 30 s
@@ -146,14 +148,15 @@ async function ensureRes(res) {
 function dimFor(ufIdx) { return S.ufFilter && ufIdx !== B.ufIdx[S.ufFilter] ? 0.22 : 1; }
 
 /** dados dos logs de urna: carrega na primeira vez que um modo/vista precisa deles e redesenha */
+let prPromise = null;
 function ensurePr() {
-  if (prorrog()) return true;
-  loadProrrog(B).then(() => { mapDirty.places = true; heavyUpdate(false); safe('direita', renderRight); safe('legenda', renderLegend); })
-    .catch((e) => logErr('prorrogação', e));
-  return false;
+  if (prorrog()) return Promise.resolve(prorrog());
+  prPromise ||= loadProrrog(B).then((P) => { mapDirty.places = true; heavyUpdate(false); safe('direita', renderRight); safe('legenda', renderLegend); return P; })
+    .catch((e) => { prPromise = null; logErr('prorrogação', e); throw e; });
+  return prPromise;
 }
 function munValue(mode, m) {
-  if (mode.src === 'pr') { const P = prorrog(); return { v: P ? lateShare(P.mun, m, mode.key === 'tardio1' ? 1 : 2) : null, cov: 1 }; }
+  if (mode.src === 'pr') { const P = prorrog(); return { v: P && !isExt(m) ? lateShare(P.mun, m, mode.key === 'tardio1' ? 1 : 2) : null, cov: 1 }; } // exterior: hora local, fica sem cor
   if (mode.src === 'base') {
     const M = B.mun, v = M.l1[m] + M.o1[m] + M.x1[m];
     return { v: v > 0 ? 100 * (M.l1[m] - M.o1[m]) / v : null, cov: 1 };
@@ -166,7 +169,7 @@ function munValue(mode, m) {
   return { v: MA.modeValue(mode, c, null, reqDelta()), cov: c.cov, c };
 }
 function ufValue(mode, u) {
-  if (mode.src === 'pr') { const P = prorrog(); return { v: P ? lateShare(P.uf, B.ufIdx[u], mode.key === 'tardio1' ? 1 : 2) : null, cov: 1 }; }
+  if (mode.src === 'pr') { const P = prorrog(); return { v: P && u !== 'zz' ? lateShare(P.uf, B.ufIdx[u], mode.key === 'tardio1' ? 1 : 2) : null, cov: 1 }; }
   const A = agg()?.uf?.[u], off = MA.official(A);
   if (mode.src === 'base') return { v: null, cov: 1 }; // recolor() pinta a UF no 1T pela soma dos municípios
   if (mode.src === 'cov') return { v: off.pct > 0 ? off.pct : null, cov: 1 }; // 0% = sem cor, distinto de 'pouco apurado'
@@ -179,7 +182,7 @@ function ufValue(mode, u) {
 function recolor() {
   if (!B || !RAMPS) return;
   const mode = MODE[S.mode];
-  if (mode.src === 'pr') ensurePr();
+  if (mode.src === 'pr') ensurePr().catch(() => {});
   const M = B.M;
   if (!COLORS.muni) COLORS.muni = new Uint8Array(M * 4);
   MUNV = MUNV || new Array(M);
@@ -449,10 +452,11 @@ function prHover(info, tt, row) {
   else { const p = info.index; t = `Local de votação · ${munName(B.L.mun[p])}`; fromAcc(PLACE, p * K); const te = el('div', 't', t); tt.append(te); placeTitle(p, (r) => { if (!tt.hidden) te.textContent = titleCase(r[0]); }); t = ''; }
   if (t) tt.append(el('div', 't', t));
   tt.append(el('div', 'lg-sub', `${isNum(ns) ? fInt(ns) + ' seções com log · ' : ''}hora de Brasília${id === 'ext' ? ' (exterior: hora local)' : ''}`));
-  row('2º turno · depois das 17h', n2 > 0 ? `${fInt(t2)} de ${fInt(n2)} votos (${fPct(100 * t2 / n2, 2)})` : '—');
+  const p10 = (t, n) => `${nf1.format(1e4 * t / n).replace(',0', '')} por 10 mil`;
+  row('2º turno · depois das 17h', n2 > 0 ? `${fInt(t2)} de ${fInt(n2)} votos (${p10(t2, n2)})` : '—');
   if (isNum(c2)) row('2º turno · depois das 18h', fInt(c2));
   if (isNum(a2)) row('Seções abertas após 17h10', fInt(a2));
-  row('1º turno · depois das 17h', n1 > 0 ? `${fInt(t1)} de ${fInt(n1)} votos (${fPct(100 * t1 / n1, 2)})` : '—');
+  row('1º turno · depois das 17h, mesma urna', n1 > 0 ? `${fInt(t1)} de ${fInt(n1)} votos (${p10(t1, n1)})` : '—');
 }
 function placeTip(tt, info) {
   const box = $('#mapwrap').getBoundingClientRect();
@@ -479,6 +483,8 @@ function unionBbox(list) {
 function flyToFocus(f, duration = 2600) {
   if (!map) return;
   const pad = { top: 110, bottom: 60, left: 40, right: 40 };
+  const cap = $('#tvcap');
+  if (cap && !cap.hidden && cap.classList.contains('story') && !cap.classList.contains('palco')) pad.top = Math.min(map.getContainer().clientHeight * 0.55, cap.offsetTop + cap.offsetHeight + 12);
   const fit = (bb) => bb && map.fitBounds(bb, { padding: pad, duration, maxZoom: 11.2 });
   if (f.type === 'br') fit(B.meta.br_bounds);
   else if (f.type === 'region' && f.id === 'ZZ') { if (EXT?.bounds) map.fitBounds(EXT.bounds, { padding: { top: 150, bottom: 50, left: 30, right: 30 }, duration }); }
@@ -839,6 +845,7 @@ function focusData(f) {
 function renderRight() { renderRightInner(); safe('ajuste direita', fitRight); }
 function renderRightInner() {
   const R = $('#right'); R.replaceChildren();
+  if (MODE[S.mode].src === 'pr') { R.append(prCard()); return; }
   const f = S.focus, d = focusData(f), c = d.c || { has: false }, req = reqDelta();
   const card = el('div', 'card');
   const head = el('div', 'focus-head'), hl = el('div');
@@ -1054,6 +1061,52 @@ function placeCard(p) {
   return c;
 }
 
+/** a regra do roteiro (cap. 5): sem conclusão abaixo de 95% de cobertura; senão, a variante sai do pior caso */
+function prConclusao(c) {
+  if (!(c.pct_cobertura_logs >= 95)) return { k: 'parcial', t: `Logs ainda em processamento: ${fPct(c.pct_cobertura_logs, 1)} dos votos conferidos. Sem conclusão até 95%.` };
+  if (c.margem_pior_caso_conservador > 0) return { k: 'A', t: `Nem no pior caso: tirando de ${short('A')} todo voto dado depois das 17h, ${short('A')} venceria por ${fInt(c.pior_caso_remove.margem)}. Os votos depois das 17h são ${fPct(c.pct_tardios_sobre_margem, 2)} da diferença; não decidiram a eleição.` };
+  if (c.proporcional.margem > 0) return { k: 'B1', t: `No pior caso, os votos tardios superam a diferença. No padrão de cada urna, ${short('A')} venceria por ${fInt(c.proporcional.margem)}; para virar, precisaria de ${fPct(c.pct_lula_tardio_para_virar, 1)} desses votos.` };
+  return { k: 'B2', t: 'No padrão de cada urna, os votos dados depois das 17h somam mais que a diferença final: os dados não confirmam a avaliação do TSE.' };
+}
+/** painel direito nos modos "Votos após 17h": régua, curva 1T × 2T, testes e fatos */
+function prCard() {
+  const card = el('div', 'card pr-card'), P = prorrog();
+  card.append(el('div', 'kicker', 'Prorrogação · logs de urna'), el('h2', null, 'A prorrogação mudou o resultado?'));
+  if (!P) { card.append(el('div', 'sub', 'Carregando os logs de urna…')); return card; }
+  const R = P.R, c = R.cenarios, u1 = c.mesma_urna_1t || {};
+  card.append(el('div', 'sub', `Hora de cada voto, de ${fInt(c.secoes_com_log)} urnas (${fPct(c.pct_cobertura_logs, 1)} dos votos). Voto é secreto: o log diz quando, não em quem.`));
+  const f = S.focus, A = f.type === 'muni' ? P.mun : f.type === 'uf' ? P.uf : null, i = f.type === 'muni' ? f.id : f.type === 'uf' ? B.ufIdx[f.id] : -1;
+  if (A && i >= 0) {
+    const nm = f.type === 'muni' ? munName(f.id) : ufName(f.id), fb = el('div', 'pr-focus');
+    fb.append(el('div', 'kicker', `Em foco · ${nm}`));
+    const r = el('div', 'sub'); r.append(`2º turno: `, el('b', null, `${fInt(A.t2[i])} votos depois das 17h`), ` de ${fInt(A.n2[i])} (${fPct(A.n2[i] ? 100 * A.t2[i] / A.n2[i] : 0, 2)}) · ${fInt(A.a2[i])} seções abertas após 17h10 · 1º turno: ${fInt(A.t1[i])} (${fPct(A.n1[i] ? 100 * A.t1[i] / A.n1[i] : 0, 1)})`);
+    fb.append(r); card.append(fb);
+  }
+  card.append(reguaBars(R, { aName: short('A') }));
+  const ch = curveChart(R, { w: 520, h: 170, t0: 15 * 60 + 30, t1: 19 * 60 + 30, step: 2 }); ch.style.marginTop = '.5rem'; card.append(ch);
+  const tb = el('table', 'tbl pr-tests'), row = (k, v, sub) => { const tr = el('tr'), td = el('td'); td.append(el('div', null, k)); if (sub) td.append(el('div', 'lg-note', sub)); tr.append(td, el('td', null, v)); tb.append(tr); };
+  row('Votos depois das 17h', `${fInt(c.tardios)} (${fPct(c.pct_votos_apos_17h, 3)})`, `${fPct(100 * c.tardios_17h_17h05 / Math.max(1, c.tardios), 0)} entre 17h00 e 17h05 (fila) · depois das 18h: ${fInt(c.tardios_18h)}`);
+  row('No 1º turno, mesmas urnas', `${fInt(u1.tardios_1t)} (${fPct(u1.pct_tardios_1t, 1)})`, `${nf1.format(u1.razao_1t_2t)}× o do 2º turno, sem prorrogação`);
+  row(`Pior caso: tirar de ${short('A')} todo voto tardio`, `${short('A')} +${fInt(c.pior_caso_remove.margem)}`, 'urna a urna, até o total de votos dele na urna');
+  row('No padrão de cada urna', `${c.proporcional.efeito_liquido_lula >= 0 ? short('A') : short('B')} +${fInt(Math.abs(c.proporcional.efeito_liquido_lula))}`, `efeito líquido dos votos tardios; sem eles, ${short('A')} +${fInt(c.proporcional.margem)}`);
+  if (isNum(c.pct_lula_tardio_para_virar)) row('Para virar o resultado', c.pct_lula_tardio_para_virar > 100 ? 'impossível' : fPct(c.pct_lula_tardio_para_virar, 1), `fatia dos votos tardios que ${short('A')} precisaria ter tido`);
+  card.append(tb);
+  const cc = prConclusao(c), cn = el('div', `pr-concl k-${cc.k}`, cc.t); card.append(cn);
+  const fx = R.fatos;
+  if (fx?.tse) {
+    const t = el('div', 'lg-note'); t.dataset.drop = '3';
+    t.append(`Conferência: o TSE informou ${fInt(fx.tse.votos_apos_17h)} votos depois das 17h e ${fInt(fx.tse.secoes_abertas_apos_17h10)} seções abertas após 17h10; para o presidente do TSE, “${fx.tse.avaliacao}”. Fonte: ${fx.tse.fonte}${fx.tse.confirmado ? '' : ' (a confirmar)'}.`);
+    card.append(t);
+  }
+  if (fx?.linha_do_tempo?.length) {
+    const tl = el('div', 'pr-tl'); tl.dataset.drop = '2';
+    tl.append(el('div', 'kicker', 'O que aconteceu em 25/10'));
+    for (const e of fx.linha_do_tempo) { const r = el('div', 'r'); r.append(el('b', null, e.hora), el('span', null, e.texto)); tl.append(r); }
+    tl.append(el('div', 'lg-note', `Fontes: ${[...new Set(fx.linha_do_tempo.map((e) => e.fonte))].join('; ')} (imprensa; a confirmar).`));
+    card.append(tl);
+  }
+  return card;
+}
 /** abre o log da urna da seção s (índice da base); p = local, para o título */
 function openSecLog(s, p = B.S.place[s]) {
   const m = B.S.mun[s], z = B.S.zone[s], u = B.mun.uf[m], cd = B.mun.cd_mun[m], zn = B.zon.zona[z], sn = B.S.secao[s];
@@ -1123,8 +1176,8 @@ function legendTexts(mode) {
     proj: ['Projeção do que falta apurar (por UF)', 'Margem projetada pelo analytics nos votos que faltam; mais opaco = mais seções por apurar.', [`favorece ${short('B')}`, `favorece ${short('A')}`]],
     cob: ['Cobertura da apuração', 'Município/UF: % totalizado (oficial). Hexágono/local: % com boletim. Sem cor = nada apurado ainda.', ['>0%', '100%']],
     margem1: ['Margem no 1º turno (% dos válidos)', `Base de comparação: ${short('A')} − ${short('B')} no 1º turno.`, [`${short('B')} à frente`, `${short('A')} à frente`]],
-    tardio2: ['Votos depois das 17h · 2º turno (% dos votos)', 'Logs de urna: hora em que cada voto foi computado (Brasília). Mesma escala do 1º turno.', ['nenhum', '10%+']],
-    tardio1: ['Votos depois das 17h · 1º turno (% dos votos)', 'Mesma urna no 1º turno, sem prorrogação: quem estava na fila às 17h votou depois. Mesma escala do 2º turno.', ['nenhum', '10%+']],
+    tardio2: ['Votos depois das 17h · 2º turno (por 10 mil votos)', 'Logs de urna: hora em que cada voto foi computado (Brasília). Mesma escala do 1º turno.', ['nenhum', '1.000+']],
+    tardio1: ['Votos depois das 17h · 1º turno (por 10 mil votos)', 'Mesma urna no 1º turno, sem prorrogação: quem estava na fila às 17h votou depois. Mesma escala do 2º turno.', ['nenhum', '1.000+']],
   }[mode.key];
 }
 function renderLegend() {
@@ -1143,7 +1196,8 @@ function renderLegend() {
   b.append(bar, ticks, e);
   const L = effLayer();
   if (mode.src === 'pr') {
-    b.append(el('div', 'lg-note', prorrog() ? 'Fonte: logs de urna do TSE (2º turno; o log traz também o 1º turno da mesma urna). Exterior em hora local. Sem cor = sem log.' : 'Carregando os logs de urna…'));
+    const c = prorrog()?.R?.cenarios;
+    b.append(el('div', 'lg-note', c ? `Fonte: logs de urna do TSE (o log do 2º turno traz o 1º turno da mesma urna) · cobertura ${fPct(c.pct_cobertura_logs, 1)} dos votos${c.pct_cobertura_logs < 99.5 ? ' · parcial' : ''}. Cinza = nenhum voto depois das 17h; sem cor = sem log. Exterior fica de fora (hora local).` : 'Carregando os logs de urna…'));
     return;
   }
   b.append(el('div', 'lg-note', `${EXT?.list.length && extFocus() ? 'Exterior: cada círculo é uma cidade com seção eleitoral; área proporcional aos votos válidos. ' : ''}${L === 'muni' ? 'Municípios: agregado oficial e swing do analytics. ' : L === 'uf' ? 'UFs: termômetro do analytics. ' : 'Cor cheia = observado na urna (boletim); cor lavada = estimado pelo swing da zona. '}${S.fade && mode.src !== 'cov' && mode.src !== 'base' ? 'Mais transparente = menor parte apurada. ' : ''}Sem cor = ainda sem apuração.`));
@@ -1157,7 +1211,27 @@ const sent = (t) => { t = String(t ?? '').trim().replace(/[\s.;,·]+$/, ''); ret
 function tidy(parts) { const out = parts.filter((p) => p !== '' && p != null); const last = out[out.length - 1]; if (typeof last === 'string') out[out.length - 1] = last.replace(/\s+$/, ''); return out; }
 const votoS = (v) => (isNum(v) && Math.abs(v) >= 1.995 ? 'votos' : 'voto');
 // Toda frase do Modo TV sai de dados atuais; cláusulas condicionais só aparecem quando valem (fase/dado presente).
+/** apuração encerrada: o Modo TV passa a contar a história (historia.js) em vez das vistas de acompanhamento */
+let storyLoading = false;
+function storyViews() {
+  const V = historiaData(), P = prorrog();
+  if (!V || !P) {
+    if (!storyLoading) {
+      storyLoading = true;
+      Promise.allSettled([loadHistoria(), ensurePr()]).then((r) => {
+        storyLoading = false;
+        r.forEach((x) => { if (x.status === 'rejected') logErr('história', x.reason); });
+        if (historiaData() && S.tv.on) { S.tv.views = []; S.tv.idx = -1; safe('tv', tvNext); }
+      });
+    }
+    return null;
+  }
+  const cards = buildStory({ V, PR: P.R, an: an(), A: short('A'), Bn: short('B'), ufName });
+  return cards.map((c, i) => ({ key: 'h-' + c.key, layer: c.map.layer, mode: c.map.mode, focus: c.map.focus, story: c, n: i, dur: c.dur,
+    beats: (c.beats || []).map((b) => ({ ...b })), title: () => c.title, text: () => [c.text] }));
+}
 function buildTvViews() {
+  if (phase() === 'final') { const sv = safe('história', storyViews); if (sv?.length) return sv; }
   const v = [], A = an(), req = reqDelta();
   if (!comparing()) {
     const b = A?.baseline_1t || B.meta.baseline_1t;
@@ -1228,16 +1302,60 @@ function tvNext() {
   S.tv.idx++;
   const v = S.tv.views[S.tv.idx];
   S.tv.cur = v; S.tv.viewStart = Date.now();
+  v.beats?.forEach((b) => { b.done = false; });
   safe('tv onShow', () => v.onShow?.());
   S.mode = v.mode; S.layer = v.layer; $('#selMode').value = v.mode; syncSeg();
   S.focus = v.focus;
+  renderTvCap(); // antes do voo: o cartão da história entra no enquadramento (flyToFocus desconta a altura dele)
   flyToFocus(v.focus, 3000);
-  recolor(); renderLegend(); safe('direita', renderRight); renderTvCap(); renderBadge(); writeHash();
+  recolor(); renderLegend(); safe('direita', renderRight); renderBadge(); writeHash();
+}
+/** teclado da história: ← → navegam, espaço pausa, 0–5 pulam para o capítulo (só com a história na tela) */
+function storyKey(e) {
+  if (!S.tv.on || !S.tv.cur?.story || e.target.closest?.('input, select, textarea, dialog') || document.querySelector('.ul-bg')) return false;
+  if (e.key === 'ArrowRight') tvGo(S.tv.idx + 1);
+  else if (e.key === 'ArrowLeft') tvGo(S.tv.idx - 1);
+  else if (e.key === ' ') { if (Date.now() < S.tv.pausedUntil) S.tv.pausedUntil = 0; else S.tv.pausedUntil = Date.now() + 10 * 60000; renderTvCap(); }
+  else if (/^[0-5]$/.test(e.key)) { const i = S.tv.views.findIndex((v) => v.story?.ch === +e.key); if (i >= 0) tvGo(i); else return false; }
+  else return false;
+  e.preventDefault();
+  return true;
+}
+/** vai para a vista i do Modo TV (navegação manual da história: ◀ ▶, capítulos, teclado) */
+function tvGo(i) {
+  if (!S.tv.on || !S.tv.views.length) return;
+  S.tv.idx = Math.max(-1, Math.min(S.tv.views.length - 1, i) - 1);
+  S.tv.pausedUntil = 0; $('#btnTv').classList.remove('paused');
+  tvNext();
+}
+function renderStoryCap(cap, c) {
+  cap.classList.add('story'); if (c.viz) cap.classList.add('palco'); // palco: cartão com gráfico, o mapa fica atrás, esmaecido
+  const paused = Date.now() < S.tv.pausedUntil, views = S.tv.views;
+  const nav = el('div', 'st-nav');
+  CHAPTERS.forEach((nm, k) => {
+    const first = views.findIndex((v) => v.story?.ch === k); if (first < 0) return;
+    const b = el('button', 'st-ch' + (c.ch === k ? ' on' : ''), k === 0 ? '●' : `${k} · ${nm}`); b.title = nm;
+    b.onclick = () => tvGo(first); nav.append(b);
+  });
+  const ctr = el('div', 'st-ctr');
+  const bp = el('button', 'st-btn', '◀'); bp.title = 'anterior (←)'; bp.onclick = () => tvGo(S.tv.idx - 1);
+  const bz = el('button', 'st-btn', paused ? '▶' : '❚❚'); bz.title = paused ? 'continuar (espaço)' : 'pausar (espaço)';
+  bz.onclick = () => { if (Date.now() < S.tv.pausedUntil) { S.tv.pausedUntil = 0; $('#btnTv').classList.remove('paused'); } else S.tv.pausedUntil = Date.now() + 10 * 60000; renderTvCap(); };
+  const bn = el('button', 'st-btn', '▶'); bn.title = 'próximo (→)'; bn.onclick = () => tvGo(S.tv.idx + 1);
+  ctr.append(bp, bz, bn, el('span', 'st-n', `${S.tv.idx + 1}/${views.length}${paused ? ' · pausado' : ''}`));
+  const top = el('div', 'st-top'); top.append(nav, ctr);
+  const hero = el('div', 'st-hero'); hero.append(el('div', 'st-big', c.hero || ''), el('div', 'st-hsub', c.heroSub || ''));
+  cap.append(top, el('div', 'k', CHAPTERS[c.ch] || ''), el('div', 'h', c.title), hero, el('div', 'p', c.text || ''));
+  if (c.viz) { const vz = el('div', 'st-viz'); const node = safe('história gráfico', c.viz); if (node) vz.append(node); cap.append(vz); }
+  if (c.foot) cap.append(el('div', 'st-foot', c.foot));
+  const tm = el('div', 'tm'), bar = el('i'); bar.id = 'tvbar'; tm.append(bar); cap.append(tm);
 }
 function renderTvCap() {
   const cap = $('#tvcap');
-  if (!S.tv.on || !S.tv.cur) { cap.hidden = true; return; }
-  cap.hidden = false; cap.replaceChildren();
+  if (!S.tv.on || !S.tv.cur) { cap.hidden = true; $('#scrim')?.classList.remove('on'); return; }
+  cap.hidden = false; cap.replaceChildren(); cap.classList.remove('story', 'palco');
+  $('#scrim')?.classList.toggle('on', !!S.tv.cur.story?.viz);
+  if (S.tv.cur.story) { renderStoryCap(cap, S.tv.cur.story); return; }
   const paused = Date.now() < S.tv.pausedUntil;
   const k = el('div', 'k'); k.append(el('span', null, `Modo TV · ${S.tv.idx + 1}/${S.tv.views.length}`), el('span', null, paused ? `pausado · retoma em ${Math.ceil((S.tv.pausedUntil - Date.now()) / 1000)} s` : ''));
   const p = el('div', 'p'); p.append(rich(safe('tv texto', () => S.tv.cur.text()) || ['—']));
@@ -1259,8 +1377,13 @@ function tvLoop() {
   btn.textContent = paused ? `❚❚ TV · ${Math.ceil((S.tv.pausedUntil - now) / 1000)} s` : '▶ Modo TV';
   if (paused) { S.tv.viewStart = now; const c = $('#tvcap .k span:last-child'); if (c) c.textContent = `pausado · retoma em ${Math.ceil((S.tv.pausedUntil - now) / 1000)} s`; return; }
   const b = $('#tvbar');
-  const frac = (now - S.tv.viewStart) / (TV_SECONDS * 1000);
+  const frac = (now - S.tv.viewStart) / ((S.tv.cur?.dur || TV_SECONDS) * 1000);
   if (b) b.style.width = Math.min(100, frac * 100) + '%';
+  for (const bt of S.tv.cur?.beats || []) { // "batida": troca a cor no meio do cartão, sem voo (ex.: 1º → 2º turno na mesma moldura)
+    if (bt.done || frac < bt.at) continue;
+    bt.done = true; S.mode = bt.mode; $('#selMode').value = bt.mode;
+    recolor(); renderLegend(); safe('direita', renderRight); writeHash();
+  }
   if (frac >= 1 || !S.tv.cur) tvNext();
 }
 
@@ -1345,9 +1468,9 @@ function wireControls() {
     tvLoop(); writeHash();
   };
   let lastMove = null;
-  window.addEventListener('pointerdown', (e) => { if (!e.target.closest('#btnTv')) userAct(); }, true);
+  window.addEventListener('pointerdown', (e) => { if (!e.target.closest('#btnTv, #tvcap.story .st-top')) userAct(); }, true);
   window.addEventListener('wheel', userAct, { passive: true, capture: true });
-  window.addEventListener('keydown', userAct, true);
+  window.addEventListener('keydown', (e) => { if (!storyKey(e)) userAct(); }, true);
   window.addEventListener('pointermove', (e) => { if (lastMove && Math.hypot(e.clientX - lastMove[0], e.clientY - lastMove[1]) > 6) userAct(); lastMove = [e.clientX, e.clientY]; }, true);
   wireSearch();
   const dlg = $('#dlgSettings');
@@ -1462,6 +1585,8 @@ async function boot() {
   lo.remove();
   map.once('idle', async () => {
     await Promise.race([firstData, new Promise((r) => setTimeout(r, 8000))]); // roteiro do Modo TV depende da fase
+    for (let k = 0; k < 40 && !an(); k++) await new Promise((r) => setTimeout(r, 200)); // a fase vem do analytics
+    if (phase() === 'final') await Promise.race([Promise.allSettled([loadHistoria(), ensurePr()]), new Promise((r) => setTimeout(r, 8000))]); // a história é o roteiro do Modo TV
     lastPhase = phase(); S.tv.ready = true;
     if (S.tv.on) { // retoma o ciclo na vista em que estava antes da recarga
       if (restored?.tvi != null) { S.tv.views = buildTvViews(); S.tv.idx = Math.min(restored.tvi, S.tv.views.length) - 1; }

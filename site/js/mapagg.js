@@ -113,7 +113,7 @@ export function cmpFromAgg(a, o = 0) {
 export function aggModeValue(key, a, o, req, out) {
   const nSec = a[o], n = a[o + 1];
   out[1] = nSec ? n / nSec : 0; out[2] = n ? a[o + 2] / n : NaN; out[0] = NaN;
-  if (key === 'tardio2' || key === 'tardio1') { const t2 = key === 'tardio2', nv = a[o + (t2 ? 18 : 20)]; out[0] = nv > 0 ? 100 * a[o + (t2 ? 19 : 21)] / nv : NaN; out[1] = 1; out[2] = NaN; return; }
+  if (key === 'tardio2' || key === 'tardio1') { const t2 = key === 'tardio2', nv = a[o + (t2 ? 18 : 20)]; out[0] = nv > 0 ? 1e4 * a[o + (t2 ? 19 : 21)] / nv : NaN; out[1] = 1; out[2] = NaN; return; } // por 10 mil votos
   if (key === 'cob') { const v = nSec ? 100 * a[o + 2] / nSec : 0; out[0] = v > 0 ? v : NaN; out[1] = 1; out[2] = NaN; return; } // 0% = sem cor
   const cA1 = a[o + 5], cA2 = a[o + 6];
   if (!n || cA1 <= 0 || cA2 <= 0) return;
@@ -208,9 +208,9 @@ export const MODES = [
   { key: 'proj', label: 'Projeção · votos que faltam', kind: 'div', th: [2, 5, 10, 20, 35], pos: 'A', neg: 'B', src: 'proj' },
   { key: 'cob', label: '% apurado', kind: 'seq', th: [0, 5, 20, 50, 80, 99.5], hue: 'gray', src: 'cov' },
   { key: 'margem1', label: 'Margem no 1º turno (base)', kind: 'div', th: [2, 5, 10, 20, 35], pos: 'A', neg: 'B', src: 'base' },
-  // logs de urna: % dos votos computados a partir das 17h (Brasília). Mesma escala nos dois turnos, para comparar.
-  { key: 'tardio2', label: 'Votos após 17h · 2º turno', kind: 'seq', th: [0.01, 0.5, 1, 2, 5, 10], hue: 'amber', src: 'pr' },
-  { key: 'tardio1', label: 'Votos após 17h · 1º turno', kind: 'seq', th: [0.01, 0.5, 1, 2, 5, 10], hue: 'amber', src: 'pr' },
+  // logs de urna: votos computados a partir das 17h (Brasília) por 10 mil votos. Mesma escala nos dois turnos, para comparar.
+  { key: 'tardio2', label: 'Votos após 17h · 2º turno', kind: 'seq', th: [1, 50, 100, 200, 500, 1000], hue: 'teal', src: 'pr' },
+  { key: 'tardio1', label: 'Votos após 17h · 1º turno', kind: 'seq', th: [1, 50, 100, 200, 500, 1000], hue: 'teal', src: 'pr' },
 ];
 export const MODE = Object.fromEntries(MODES.map((m) => [m.key, m]));
 
@@ -232,7 +232,7 @@ export function modeValue(mode, c, off, req) {
 export function buildRamps(cand, theme) {
   const dark = theme === 'dark';
   const neutral = dark ? '#4a4d55' : '#d6d5cf';
-  const hue = { A: cand.A.color, B: cand.B.color, teal: '#1f9c8e', mag: '#b5179e', amber: dark ? '#f2a516' : '#c47a00', gray: dark ? '#f2f1ee' : '#2b2b2b' };
+  const hue = { A: cand.A.color, B: cand.B.color, teal: '#1f9c8e', mag: '#b5179e', gray: dark ? '#f2f1ee' : '#2b2b2b' };
   const steps = [0.3, 0.47, 0.64, 0.82, 1.0];
   const arm = (h) => steps.map((t, i) => (i === 4 && !dark ? mix(h, '#000000', 0.12) : mix(neutral, h, t)));
   const R = { neutral: hex2rgb(neutral), noData: dark ? [120, 124, 132] : [190, 189, 184] };

@@ -42,10 +42,10 @@ export function loadProrrog(B) {
   return loading;
 }
 
-/** % dos votos a partir das 17h (turno 1 ou 2) num acumulador {n1,t1,n2,t2}[i] */
+/** votos a partir das 17h por 10 mil votos (turno 1 ou 2) num acumulador {n1,t1,n2,t2}[i] */
 export function lateShare(A, i, t) {
   const n = t === 1 ? A.n1[i] : A.n2[i];
-  return n > 0 ? 100 * (t === 1 ? A.t1[i] : A.t2[i]) / n : null;
+  return n > 0 ? 1e4 * (t === 1 ? A.t1[i] : A.t2[i]) / n : null;
 }
 
 /** texto do log da urna da seção (servido por serve.py, que descompacta o .jez) */

@@ -13,7 +13,8 @@ export const sign = (v) => (v > 0 ? '+' : v < 0 ? '−' : '±');
 export const fPP = (v, d = 1) => (!isNum(v) ? '—' : sign(Math.abs(v) < (d === 2 ? 0.005 : 0.05) ? 0 : v) + (d === 2 ? nf2 : nf1).format(Math.abs(v)) + ' p.p.');
 /** δ: votos de margem por 100 aptos, com sinal */
 export const fM = (v, d = 1) => (!isNum(v) ? '—' : sign(Math.abs(v) < (d === 2 ? 0.005 : 0.05) ? 0 : v) + (d === 2 ? nf2 : nf1).format(Math.abs(v)));
-export const fPct = (v, d = 1) => (!isNum(v) ? '—' : (d === 0 ? nf0 : d === 2 ? nf2 : nf1).format(v) + '%');
+const nfd = {};
+export const fPct = (v, d = 1) => (!isNum(v) ? '—' : (d === 0 ? nf0 : d === 1 ? nf1 : d === 2 ? nf2 : (nfd[d] ||= new Intl.NumberFormat('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }))).format(v) + '%');
 export const U100 = 'por 100 aptos';
 /** probabilidade 0–1 como %: nunca imprime 0% nem 100% ("<1%" / ">99%") */
 export const fProb = (p) => (!isNum(p) ? '—' : p * 100 >= 99.5 ? '>99%' : p * 100 < 0.5 ? '<1%' : nf0.format(p * 100) + '%');

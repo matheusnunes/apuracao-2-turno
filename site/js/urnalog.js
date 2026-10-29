@@ -14,6 +14,7 @@ const KEY_EVENTS = [
 ];
 const hms = (x) => `${String(Math.floor(x / 3600)).padStart(2, '0')}:${String(Math.floor(x / 60) % 60).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`;
 const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+const mask = (m) => (m.includes('/') ? m : m.replace(/\d{9,}/g, (d) => `${d.slice(0, 2)}••••${d.slice(-2)}`));
 
 /** texto do log -> linhas e resumo por turno (horas em Brasília; exterior fica na hora local) */
 export function parseUrnaLog(text, isExt) {
@@ -24,7 +25,8 @@ export function parseUrnaLog(text, isExt) {
     const p = raw.split('\t');
     const d = raw.slice(0, 10), tt = DAYS[d] || 0;
     const sec = +raw.slice(11, 13) * 3600 + +raw.slice(14, 16) * 60 + +raw.slice(17, 19);
-    const L = { d, t: raw.slice(11, 19), sec, lvl: p[1] || '', app: p[3] || '', msg: p[4] || '', turno: tt, k: '' };
+    // títulos de eleitor de mesários (9+ dígitos) ficam mascarados na tela; o download é o arquivo original
+    const L = { d, t: raw.slice(11, 19), sec, lvl: p[1] || '', app: p[3] || '', msg: mask(p[4] || ''), turno: tt, k: '' };
     lines.push(L);
     if (!tt) continue;
     const s = T[tt];
@@ -53,33 +55,57 @@ export function parseUrnaLog(text, isExt) {
   return { lines, T };
 }
 
-function chart(T, w = 720, h = 170) {
+/** linha do tempo da urna: votos acumulados (1º turno tracejado × 2º turno) e um "código de barras" com um traço por voto,
+ *  os de depois das 17h em teal; ▲ abertura, ■ encerramento. Zoom: dia todo ou 16h30–17h30. */
+function chart(T, zoom = 'dia', w = 720, h = 210) {
   const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
   svg.setAttribute('viewBox', `0 0 ${w} ${h}`); svg.setAttribute('width', '100%'); svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', 'Votos a cada 10 minutos, 1º e 2º turno, hora de Brasília');
+  svg.setAttribute('aria-label', 'Votos acumulados na urna, 1º e 2º turno, hora de Brasília');
   const add = (tag, a, txt) => { const e = document.createElementNS(ns, tag); for (const k in a) e.setAttribute(k, a[k]); if (txt != null) e.textContent = txt; svg.append(e); return e; };
-  const t0 = 7 * 3600, t1 = 19.5 * 3600, step = 600, nb = (t1 - t0) / step;
-  const bins = (arr) => { const b = new Array(nb).fill(0); for (const x of arr) { const i = Math.floor((x - t0) / step); if (i >= 0 && i < nb) b[i]++; } return b; };
-  const b1 = bins(T[1].vb), b2 = bins(T[2].vb), ymax = Math.max(4, ...b1, ...b2);
-  const m = { l: 34, r: 10, t: 14, b: 22 }, iw = w - m.l - m.r, ih = h - m.t - m.b;
-  const X = (sec) => m.l + ((sec - t0) / (t1 - t0)) * iw, Y = (v) => m.t + ih - (v / ymax) * ih, bw = iw / nb;
+  const [t0, t1] = zoom === '17h' ? [16.5 * 3600, 17.5 * 3600] : zoom === 'tarde' ? [16.75 * 3600, 19.5 * 3600] : [7.5 * 3600, 19.5 * 3600];
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-  const amber = document.documentElement.dataset.theme === 'light' ? '#c47a00' : '#f2a516';
-  add('rect', { x: X(17 * 3600), y: m.t, width: X(19 * 3600) - X(17 * 3600), height: ih, fill: amber, opacity: 0.1 });
-  for (let hh = 8; hh <= 19; hh++) {
-    add('line', { x1: X(hh * 3600), x2: X(hh * 3600), y1: m.t, y2: m.t + ih, stroke: css('--grid'), 'stroke-width': hh === 17 || hh === 19 ? 0 : 1 });
-    add('text', { x: X(hh * 3600), y: h - 6, 'text-anchor': 'middle', 'font-size': 10, fill: css('--muted') }, `${hh}h`);
+  const ink = css('--ink'), ink2 = css('--ink-2'), muted = css('--muted'), grid = css('--grid'), teal = css('--teal');
+  const m = { l: 40, r: 64, t: 16, b: 58 }, iw = w - m.l - m.r, ih = h - m.t - m.b;
+  const X = (sec) => m.l + ((Math.max(t0, Math.min(t1, sec)) - t0) / (t1 - t0)) * iw;
+  const cnt = (vb) => vb.filter((x) => x < t0).length;
+  const ymax = Math.max(4, ...[1, 2].map((t) => T[t].vb.filter((x) => x <= t1).length)), y0 = zoom === 'dia' ? 0 : Math.min(...[1, 2].map((t) => cnt(T[t].vb)));
+  const Y = (v) => m.t + ih - ((v - y0) / Math.max(1, ymax - y0)) * ih;
+  add('rect', { x: X(17 * 3600), y: m.t, width: X(19 * 3600) - X(17 * 3600), height: ih + 44, fill: teal, opacity: 0.08 });
+  const step = zoom === 'dia' ? 3600 : 600;
+  for (let t = Math.ceil(t0 / step) * step; t <= t1; t += step) {
+    add('line', { x1: X(t), x2: X(t), y1: m.t, y2: m.t + ih, stroke: grid, 'stroke-width': 1 });
+    add('text', { x: X(t), y: h - 4, 'text-anchor': 'middle', 'font-size': 10, fill: muted }, `${Math.floor(t / 3600)}h${t % 3600 ? String((t % 3600) / 60).padStart(2, '0') : ''}`);
   }
-  b2.forEach((v, i) => { if (v) add('rect', { x: m.l + i * bw + 1, y: Y(v), width: bw - 2, height: m.t + ih - Y(v), fill: css('--ink-2'), opacity: 0.85 }); });
-  add('polyline', { points: b1.map((v, i) => `${m.l + (i + 0.5) * bw},${Y(v)}`).join(' '), fill: 'none', stroke: amber, 'stroke-width': 2, 'stroke-linejoin': 'round' });
-  for (const [hh, dash] of [[17, ''], [19, '4 3']]) add('line', { x1: X(hh * 3600), x2: X(hh * 3600), y1: m.t - 4, y2: m.t + ih, stroke: css('--ink'), 'stroke-width': 1.5, 'stroke-dasharray': dash });
-  add('text', { x: (X(17 * 3600) + X(19 * 3600)) / 2, y: m.t + 4, 'text-anchor': 'middle', 'font-size': 10, 'font-weight': 700, fill: css('--ink') }, 'prorrogação');
-  add('text', { x: m.l - 6, y: Y(ymax) + 4, 'text-anchor': 'end', 'font-size': 10, fill: css('--muted') }, String(ymax));
-  add('text', { x: m.l - 6, y: Y(0) + 4, 'text-anchor': 'end', 'font-size': 10, fill: css('--muted') }, '0');
-  const lg = el('div', 'ul-legend');
-  const sw = (c, t, line) => { const i = el('i'); i.style.background = c; if (line) i.className = 'ln'; lg.append(i, el('span', null, t)); };
-  sw(css('--ink-2'), '2º turno (barras, votos a cada 10 min)'); sw(amber, '1º turno, mesma urna (linha)', true);
-  const box = el('div', 'ul-chart'); box.append(svg, lg);
+  for (const [hh, dash] of [[17, ''], [19, '4 3']]) if (hh * 3600 >= t0 && hh * 3600 <= t1) add('line', { x1: X(hh * 3600), x2: X(hh * 3600), y1: m.t - 4, y2: m.t + ih + 44, stroke: ink, 'stroke-width': 1.3, 'stroke-dasharray': dash });
+  add('text', { x: X(17 * 3600) + 4, y: m.t + 2, 'font-size': 10, 'font-weight': 700, fill: ink }, 'só no 2º turno: prorrogação');
+  add('text', { x: m.l - 6, y: Y(ymax) + 4, 'text-anchor': 'end', 'font-size': 10, fill: muted }, String(ymax));
+  add('text', { x: m.l - 6, y: Y(y0) + 4, 'text-anchor': 'end', 'font-size': 10, fill: muted }, String(y0));
+  for (const [t, col, wd, dash, lab] of [[1, ink2, 1.6, '5 3', '1º turno'], [2, ink, 2.5, '', '2º turno']]) {
+    const vb = T[t].vb; if (!vb.length) continue;
+    let n = cnt(vb); const pts = [`${X(t0)},${Y(n)}`];
+    for (const x of vb) { if (x < t0 || x > t1) continue; pts.push(`${X(x)},${Y(n)}`); n++; pts.push(`${X(x)},${Y(n)}`); }
+    const tEnd = Math.min(t1, vb[vb.length - 1]); pts.push(`${X(tEnd)},${Y(n)}`);
+    add('polyline', { points: pts.join(' '), fill: 'none', stroke: col, 'stroke-width': wd, 'stroke-dasharray': dash, 'stroke-linejoin': 'round' });
+    add('text', { x: X(tEnd) + 5, y: Y(n) + 4, 'font-size': 10.5, 'font-weight': 700, fill: col }, `${lab} · ${n}`);
+  }
+  // código de barras: uma faixa por turno
+  [[2, m.t + ih + 10], [1, m.t + ih + 28]].forEach(([t, y]) => {
+    const s = T[t];
+    add('text', { x: m.l - 6, y: y + 9, 'text-anchor': 'end', 'font-size': 9.5, fill: muted }, t === 2 ? '2T' : '1T');
+    const hl = (x) => t === 2 && x >= 17 * 3600; // no 1º turno não houve prorrogação: voto depois das 17h ali é fila
+    for (const x of s.vb) if (x >= t0 && x <= t1) add('line', { x1: X(x), x2: X(x), y1: y, y2: y + 12, stroke: hl(x) ? teal : ink2, 'stroke-width': 1, opacity: hl(x) ? 1 : 0.55 });
+    const sh = -s.off * 3600;
+    if (s.open != null && s.open + sh >= t0) add('text', { x: X(s.open + sh), y: y + 10, 'text-anchor': 'middle', 'font-size': 10, fill: ink }, '▲');
+    if (s.close != null && s.close + sh <= t1) add('text', { x: X(s.close + sh), y: y + 10, 'text-anchor': 'middle', 'font-size': 10, fill: ink }, '■');
+  });
+  return svg;
+}
+function chartBox(T, zoom0) {
+  const box = el('div', 'ul-chart'), seg = el('div', 'seg ul-zoom'), holder = el('div');
+  const draw = (z) => { holder.replaceChildren(chart(T, z)); seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.z === z)); };
+  for (const [z, t] of [['dia', 'dia todo'], ['17h', '16h30–17h30'], ['tarde', '16h45–19h30']]) { const b = el('button', null, t); b.dataset.z = z; b.onclick = () => draw(z); seg.append(b); }
+  const lg = el('div', 'ul-legend'); lg.append(el('span', null, 'votos acumulados · traços = um voto cada (2º turno depois das 17h em verde-azulado; no 1º turno não houve prorrogação, voto depois das 17h é fila) · ▲ abertura · ■ encerramento · hora de Brasília'));
+  box.append(seg, holder, lg); draw(zoom0);
   return box;
 }
 
@@ -122,7 +148,7 @@ export async function openUrnaLog(info) {
   body.replaceChildren();
   const offTxt = T[2].off ? ` · relógio da urna em hora local (${T[2].off > 0 ? '+' : '−'}${Math.abs(T[2].off)} h de Brasília); resumo e gráfico convertidos para Brasília` : info.isExt ? ' · exterior: hora local do país' : '';
   body.append(el('div', 'sub', `${fInt(lines.length)} linhas, da carga da urna ao fim do 2º turno${offTxt}.`));
-  const top = el('div', 'ul-top'); top.append(chart(T), statBlock(2, T[2]), statBlock(1, T[1])); body.append(top);
+  const top = el('div', 'ul-top'); top.append(chartBox(T, info.zoom || 'dia'), statBlock(2, T[2]), statBlock(1, T[1])); body.append(top);
   // filtros
   const bar = el('div', 'ul-bar'); const st = { turno: 2, vota: true, q: '' };
   const seg = el('div', 'seg');
@@ -130,7 +156,7 @@ export async function openUrnaLog(info) {
   const cb = el('label', 'ul-cb'), ci = el('input'); ci.type = 'checkbox'; ci.checked = true; ci.onchange = () => { st.vota = ci.checked; draw(); }; cb.append(ci, ' só a votação (app VOTA)');
   const q = el('input', 'ul-q'); q.placeholder = 'filtrar texto (ex.: encerr, voto, biometria)'; q.oninput = () => { st.q = q.value.trim().toLowerCase(); draw(); };
   const go17 = el('button', 'chip', '↓ 17h'); go17.title = 'Ir para o primeiro registro a partir das 17h (Brasília)';
-  const dl = el('a', 'linkbtn', 'baixar .txt'); dl.href = `logs/${info.uf}/${String(info.cdMun).padStart(5, '0')}/${String(info.zona).padStart(4, '0')}-${String(info.secao).padStart(4, '0')}.txt`; dl.download = `log-${info.uf}-${info.cdMun}-${info.zona}-${info.secao}.txt`;
+  const dl = el('a', 'linkbtn', 'baixar original (.txt)'); dl.title = 'Arquivo original do TSE: contém os títulos de eleitor dos mesários, mascarados na tela'; dl.href = `logs/${info.uf}/${String(info.cdMun).padStart(5, '0')}/${String(info.zona).padStart(4, '0')}-${String(info.secao).padStart(4, '0')}.txt`; dl.download = `log-${info.uf}-${info.cdMun}-${info.zona}-${info.secao}.txt`;
   bar.append(seg, cb, q, go17, dl); body.append(bar);
   const list = el('div', 'ul-lines'); body.append(list);
   function draw() {

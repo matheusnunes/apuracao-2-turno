@@ -76,13 +76,13 @@ def main():
             bu["l"][i], bu["o"][i], bu["c"][i], has_bu[i] = l or 0, o or 0, c or 0, True
 
     db = sqlite3.connect(f"file:{LOGS_DB}?mode=ro", uri=True)
-    rows = db.execute("SELECT key, t1_open, t2_open, t1_sel, t2_sel, t1_id, t1_v, t2_v, t2_d, t1_allp, t2_allp "
+    rows = db.execute("SELECT key, t1_open, t2_open, t1_sel, t2_sel, t1_id, t1_v, t2_v, t2_d, t1_allp, t2_allp, t1_d "
                       "FROM log WHERE status='ok'").fetchall()
     status = collections.Counter(s for (s,) in db.execute("SELECT status FROM log"))
 
     # 1) fuso por seção -> moda do município
     off_sec, off_mun = {}, collections.defaultdict(list)
-    for key, o1, o2, *_ in rows:
+    for key, o1, o2, *_r in rows:
         o = o2 if o2 is not None else o1
         if o is None or key.startswith("zz"):
             continue
@@ -96,7 +96,8 @@ def main():
     C["f2"][:] = 255
     curve = {t: np.zeros(MIN1 - MIN0, np.int64) for t in (1, 2)}
     curve_uf = {t: collections.defaultdict(lambda: np.zeros((MIN1 - MIN0) // 5, np.int64)) for t in (1, 2)}
-    dur_hist = {t: np.zeros(601, np.int64) for t in (2,)}
+    dur_hist = {t: np.zeros(601, np.int64) for t in (1, 2)}
+    close_hist = {t: np.zeros(MIN1 - MIN0, np.int64) for t in (1, 2)}   # urnas encerrando por minuto (Brasília)
     allp = collections.Counter()
     fastest = []           # (dur, key, hh:mm:ss)
     last_votes = []        # (t_brt, key)
@@ -105,7 +106,7 @@ def main():
     t2_1705 = t2_19 = 0
     n2_vs_bu = collections.Counter()
 
-    for key, o1, o2, s1, s2, id1, v1, v2, d2, a1, a2 in rows:
+    for key, o1, o2, s1, s2, id1, v1, v2, d2, a1, a2, d1 in rows:
         i = key_idx.get(key)
         if i is None:
             continue
@@ -141,6 +142,8 @@ def main():
                 n2_vs_bu["igual" if len(V2) == bu["c"][i] else "diferente"] += 1
         if s2 is not None:
             C["e2"][i] = (s2 + shift) // 60
+            if not zz and 0 <= C["e2"][i] - MIN0 < MIN1 - MIN0:
+                close_hist[2][C["e2"][i] - MIN0] += 1
         if a2 is not None and not zz:
             allp[("2T", a2)] += 1
         # 1T: só quando a urna do 2T estava nesta mesma seção no 1T
@@ -158,6 +161,12 @@ def main():
             C["u1"][i] = int(V1[-1] // 60)
             if s1 is not None:
                 C["e1"][i] = (s1 + shift) // 60
+                if not zz and 0 <= C["e1"][i] - MIN0 < MIN1 - MIN0:
+                    close_hist[1][C["e1"][i] - MIN0] += 1
+            D1 = unpack(d1, np.uint16)
+            D1 = D1[D1 < 65535]
+            if len(D1):
+                dur_hist[1] += np.bincount(np.minimum(D1, 600), minlength=601)
             if not zz:
                 m = V1 // 60 - MIN0
                 m = m[(m >= 0) & (m < MIN1 - MIN0)]
@@ -276,6 +285,7 @@ def main():
                       "votos_log_x_comparecimento_bu": dict(n2_vs_bu)},
         "cenarios": cen,
         "curvas": {"min0": MIN0, "passo_min": 1, "t1": curve[1].tolist(), "t2": curve[2].tolist()},
+        "encerramentos": {"min0": MIN0, "passo_min": 1, "t1": close_hist[1].tolist(), "t2": close_hist[2].tolist()},
         "curvas_uf": {"min0": MIN0, "passo_min": 5,
                       "t1": {k: v.tolist() for k, v in sorted(curve_uf[1].items())},
                       "t2": {k: v.tolist() for k, v in sorted(curve_uf[2].items())}},
@@ -287,6 +297,8 @@ def main():
             "n_secoes_no_min": sum(1 for d, *_ in fastest if d == fmin),
             "hist_s": dur_hist[2][:121].tolist(), "acima_120s": int(dur_hist[2][121:].sum()),
             "mediana_s": int(np.searchsorted(np.cumsum(dur_hist[2]), dur_hist[2].sum() / 2)),
+            "mediana_1t_s": int(np.searchsorted(np.cumsum(dur_hist[1]), dur_hist[1].sum() / 2)) if dur_hist[1].sum() else None,
+            "min_1t_s": int(np.nonzero(dur_hist[1])[0][0]) if dur_hist[1].sum() else None,
         },
         "ultimos_votos": [{"key": k, "hora": sec_hms(t), "idx": key_idx[k]} for t, k in last_votes[:20]],
     }
