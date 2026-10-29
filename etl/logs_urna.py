@@ -69,71 +69,149 @@ def raw_path(key: str, root: Path = RAW) -> Path:
     return root / uf / mun / f"{z}-{s}.jez"
 
 
-def save_and_parse(data: bytes, path: str | None) -> dict:
+def save_and_parse(data: bytes, path: str | None, key: str | None = None) -> dict:
     """Roda num processo do pool: grava o bruto (se pedido) e resume."""
     if path:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         tmp = Path(path + ".tmp")
         tmp.write_bytes(data)
         tmp.replace(path)
-    return parse_jez(data)
+    return parse_jez(data, key)
 
 
-def parse_jez(data: bytes) -> dict:
-    """Bytes do `-log.jez` -> resumo por turno."""
+def iter_logs(data: bytes, prefix: str = ""):
+    """(nome, texto) de cada log do .jez. Urna trocada no dia (contingência): os logs das urnas anteriores vêm como
+    .jez aninhados dentro do de fora, ao lado do logd.dat da urna que terminou a votação."""
     zf = zipfile.ZipFile(io.BytesIO(data))
-    names = zf.namelist()
+    for name in zf.namelist():
+        b = zf.read(name)
+        if b[:2] == b"PK":
+            yield from iter_logs(b, f"{prefix}{name}/")
+        else:
+            yield prefix + name, b.decode("latin-1")
+
+
+def _parse_text(text: str) -> tuple[dict, str]:
     st = {t: {"open": None, "sel": None, "close": None, "allp": None, "id": {}, "hab": None, "v": [], "d": []}
           for t in (1, 2)}
     model = ""
-    for name in names:
-        text = zf.read(name).decode("latin-1")
-        for line in text.split("\n"):
-            t = DAYS.get(line[:10])
-            if t is None:
-                continue
-            p = line.split("\t")
-            if len(p) < 5:
-                continue
-            msg = p[4]
-            try:
-                sec = int(line[11:13]) * 3600 + int(line[14:16]) * 60 + int(line[17:19])
-            except ValueError:
-                continue
-            s = st[t]
-            if msg == "O voto do eleitor foi computado":
-                s["v"].append(sec)
-                s["d"].append(min(sec - s["hab"], 65535) if s["hab"] is not None and sec >= s["hab"] else 65535)
-                s["hab"] = None
-            elif msg == "Eleitor foi habilitado":
-                s["hab"] = sec
-            elif msg == "Urna pronta para receber votos":
-                if s["open"] is None:
-                    s["open"] = sec
-            elif msg == "Operador selecionou: Encerrar votação":
-                s["sel"] = sec
-            elif msg == "Procedimento de encerramento confirmado":
-                s["close"] = sec
-            elif msg.startswith("Todas as pessoas presentes já votaram?"):
-                s["allp"] = 1 if msg.rstrip().endswith("SIM") else 0
-            elif msg.startswith(("Município: ", "Zona Eleitoral: ", "Seção Eleitoral: ")):
-                k, _, v = msg.partition(": ")
-                s["id"][k[0]] = v.strip()
-            elif msg.startswith("Identificação do Modelo de Urna: ") and not model:
-                model = msg.split(": ", 1)[1].strip()
-    out = {"nfiles": len(names), "model": model}
-    for t in (1, 2):
+    for line in text.split("\n"):
+        t = DAYS.get(line[:10])
+        if t is None:
+            continue
+        p = line.split("\t")
+        if len(p) < 5:
+            continue
+        msg = p[4]
+        try:
+            sec = int(line[11:13]) * 3600 + int(line[14:16]) * 60 + int(line[17:19])
+        except ValueError:
+            continue
         s = st[t]
-        order = np.argsort(np.asarray(s["v"], dtype=np.int64), kind="stable")
-        v = [s["v"][i] for i in order]
-        d = [s["d"][i] for i in order]
-        ident = s["id"]
+        if msg == "O voto do eleitor foi computado":
+            s["v"].append(sec)
+            s["d"].append(min(sec - s["hab"], 65535) if s["hab"] is not None and sec >= s["hab"] else 65535)
+            s["hab"] = None
+        elif msg == "Eleitor foi habilitado":
+            s["hab"] = sec
+        elif msg == "Urna pronta para receber votos":
+            if s["open"] is None:
+                s["open"] = sec
+        elif msg == "Operador selecionou: Encerrar votação":
+            s["sel"] = sec
+        elif msg == "Procedimento de encerramento confirmado":
+            s["close"] = sec
+        elif msg.startswith("Todas as pessoas presentes já votaram?"):
+            s["allp"] = 1 if msg.rstrip().endswith("SIM") else 0
+        elif msg.startswith(("Município: ", "Zona Eleitoral: ", "Seção Eleitoral: ")):
+            k, _, v = msg.partition(": ")
+            s["id"][k[0]] = v.strip()
+        elif msg.startswith("Identificação do Modelo de Urna: ") and not model:
+            model = msg.split(": ", 1)[1].strip()
+    return st, model
+
+
+def _ident(d: dict) -> str | None:
+    return f"{d.get('M', '')}-{d.get('Z', '')}-{d.get('S', '')}" if d else None
+
+
+def _same(ident: str | None, want: str | None) -> bool:
+    if not ident or not want:
+        return False
+    try:
+        return [int(x) for x in ident.split("-")] == [int(x) for x in want.split("-")]
+    except ValueError:
+        return False
+
+
+def parse_jez(data: bytes, key: str | None = None) -> dict:
+    """Bytes do `-log.jez` -> resumo por turno. Com vários logs (urna trocada), soma os votos do 2T de todas as urnas
+    desta seção e só aceita o 1T de uma urna que estava nesta mesma seção no 1T (`key` = uf-mun-zona-secao)."""
+    want = "-".join(key.split("-")[1:]) if key else None
+    files = [(n, *_parse_text(t)) for n, t in iter_logs(data)]
+    model = next((m for _, _, m in files if m), "")
+    out = {"nfiles": len(files), "model": model}
+    for t in (1, 2):
+        use = []
+        for _, st, _m in files:
+            s = st[t]
+            if not s["v"] and s["open"] is None:
+                continue
+            ident = _ident(s["id"])
+            if t == 2 and (want is None or ident is None or _same(ident, want)):
+                use.append(s)
+            elif t == 1 and (_same(ident, want) or (want is None and not use)):
+                use.append(s)
+        if t == 1 and want and not use:  # 1T de outra seção: guarda só a identidade, para a conferência
+            ids = [_ident(st[1]["id"]) for _, st, _m in files if st[1]["v"]]
+            out[t] = {"open": None, "sel": None, "close": None, "allp": None, "n": 0, "id": ids[0] if ids else None, "v": None, "d": None}
+            continue
+        v = [x for s in use for x in s["v"]]
+        d = [x for s in use for x in s["d"]]
+        order = np.argsort(np.asarray(v, dtype=np.int64), kind="stable")
+        v = [v[i] for i in order]
+        d = [d[i] for i in order]
+        opens = [s["open"] for s in use if s["open"] is not None]
+        sels = [s["sel"] for s in use if s["sel"] is not None]
+        closes = [s["close"] for s in use if s["close"] is not None]
+        last = max(use, key=lambda s: s["close"] or -1) if use else None
+        ident = next((_ident(s["id"]) for s in use if s["id"]), None)
         out[t] = {
-            "open": s["open"], "sel": s["sel"], "close": s["close"], "allp": s["allp"], "n": len(v),
-            "id": f"{ident.get('M', '')}-{ident.get('Z', '')}-{ident.get('S', '')}" if ident else None,
+            "open": min(opens) if opens else None, "sel": max(sels) if sels else None,
+            "close": max(closes) if closes else None, "allp": last["allp"] if last else None, "n": len(v),
+            "id": (want if want and any(_same(_ident(s["id"]), want) for s in use) else ident),
             "v": pack(v, np.uint32) if v else None, "d": pack(d, np.uint16) if d else None,
         }
     return out
+
+
+def reparse(a):
+    """Refaz o resumo a partir do bruto em data/logs/raw (ex.: depois de corrigir o parser). `--reparse multi` só
+    refaz os .jez com mais de um log (urna trocada); `--reparse all`, todos."""
+    db = sqlite3.connect(a.db)
+    q = "SELECT key FROM log WHERE status='ok'" + (" AND nfiles > 1" if a.reparse == "multi" else "")
+    keys = [k for (k,) in db.execute(q)]
+    log.info("refazendo %d resumos a partir do bruto", len(keys))
+    rows, t0 = [], time.time()
+    with ProcessPoolExecutor(max_workers=a.workers) as pool:
+        futs = {pool.submit(_reparse_one, k): k for k in keys}
+        for i, f in enumerate(futs, 1):
+            k = futs[f]
+            try:
+                data_len, res = f.result()
+                rows.append(row_from(k, "ok", data_len, res))
+            except Exception as e:  # noqa: BLE001
+                log.warning("%s: %r", k, e)
+            if len(rows) >= 500 or i == len(keys):
+                db.executemany(f"INSERT OR REPLACE INTO log({','.join(COLS)}) VALUES ({','.join('?' * len(COLS))})", rows)
+                db.commit()
+                rows.clear()
+    log.info("ok em %.0f s", time.time() - t0)
+
+
+def _reparse_one(key: str):
+    data = raw_path(key).read_bytes()
+    return len(data), parse_jez(data, key)
 
 
 def row_from(key: str, status: str, size: int = 0, res: dict | None = None, err: str | None = None) -> tuple:
@@ -212,7 +290,7 @@ async def run(a):
                         stats["bytes"] += len(body)
                         try:
                             res = await loop.run_in_executor(pool, save_and_parse, body,
-                                                             None if a.no_raw else str(raw_path(key)))
+                                                             None if a.no_raw else str(raw_path(key)), key)
                             rows.append(row_from(key, "ok", len(body), res))
                             stats["ok"] += 1
                         except Exception as e:  # noqa: BLE001
@@ -262,13 +340,17 @@ def main():
     p.add_argument("--workers", type=int, default=6, help="processos de parse")
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--no-raw", action="store_true", help="não guarda o .jez bruto")
+    p.add_argument("--reparse", choices=["multi", "all"], help="refaz os resumos a partir do bruto (sem baixar)")
     p.add_argument("--ufs", nargs="*", default=None)
     p.add_argument("--state", type=Path, default=STATE)
     p.add_argument("--db", type=Path, default=OUT)
     a = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    asyncio.run(run(a))
+    if a.reparse:
+        reparse(a)
+    else:
+        asyncio.run(run(a))
 
 
 if __name__ == "__main__":

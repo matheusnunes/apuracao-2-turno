@@ -41,6 +41,7 @@ function nightChart(H, final, marks = [], { w = 560, h = 190, showProj = true } 
   const m = { l: 44, r: 12, t: 14, b: 24 }, iw = w - m.l - m.r, ih = h - m.t - m.b;
   let lo = -1e6, hi = 1e6;
   for (const p of pts) { lo = Math.min(lo, p.margin_apurado); hi = Math.max(hi, p.margin_apurado); if (showProj && isNum(p.margin_proj)) { lo = Math.min(lo, p.margin_proj); hi = Math.max(hi, p.margin_proj); } }
+  if (showProj) for (const p of pts) if (p.pct_secoes >= 1 && Array.isArray(p.band) && p.band.every(isNum)) { lo = Math.min(lo, Math.max(-5e6, p.band[0])); hi = Math.max(hi, Math.min(13e6, p.band[1])); } // a faixa precisa aparecer cruzando o zero
   hi = Math.max(hi, final) * 1.08; lo *= 1.15;
   const X = (pct) => m.l + Math.sqrt(Math.max(0, Math.min(100, pct)) / 100) * iw;
   const Y = (v) => m.t + (1 - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo)) * ih;

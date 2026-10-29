@@ -20,6 +20,7 @@ import argparse
 import email.utils
 import gzip
 import http.server
+import io
 import mimetypes
 import os
 import re
@@ -62,11 +63,21 @@ def urna_log(uf: str, mun: str, z: str, s: str) -> bytes | None:
         tmp = p.with_suffix(".tmp")
         tmp.write_bytes(body)
         tmp.replace(p)
+    def walk(data: bytes, prefix: str = ""):  # urna trocada no dia: os logs das anteriores vêm como .jez aninhados
+        zf = zipfile.ZipFile(io.BytesIO(data))
+        for n in zf.namelist():
+            b = zf.read(n)
+            if b[:2] == b"PK":
+                yield from walk(b, f"{prefix}{n}/")
+            else:
+                yield prefix + n, b.decode("latin-1")
     try:
-        zf = zipfile.ZipFile(p)
-        return "".join(zf.read(n).decode("latin-1") for n in zf.namelist()).encode("utf-8")
+        files = list(walk(p.read_bytes()))
     except (OSError, zipfile.BadZipFile):
         return None
+    if len(files) == 1:
+        return files[0][1].encode("utf-8")
+    return "".join(f"### arquivo: {n}\n{t}" for n, t in files).encode("utf-8")
 MIME = {
     ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
     ".mjs": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8",

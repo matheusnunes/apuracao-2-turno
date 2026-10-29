@@ -65,6 +65,10 @@ uv run python site/tools/cdp_check.py --url 'http://127.0.0.1:8000/?live=data/li
 | `js/base.js` | carrega `data/base/` (binários "struct of arrays" + JSON) |
 | `js/fmt.js` | formatação pt-BR, cores OKLab, utilidades |
 | `js/exterior.js` | país e coordenada das 186 cidades do exterior (tabela manual; o TSE não publica) |
+| `js/prorrog.js` | dados dos logs de urna (`data/prorrog/`), carregados sob demanda; somas por município e UF |
+| `js/prcharts.js` | gráficos da prorrogação: curva por minuto 1T × 2T, régua contra a diferença final, urnas encerrando × decisão |
+| `js/historia.js` | a narrativa pós-eleição em cartões (5 capítulos), montada a partir de `data/prorrog/historia.json` e `resumo.json` |
+| `js/urnalog.js` | visor do log de uma urna (votos acumulados 1T × 2T, código de barras, linhas filtráveis) |
 | `css/style.css` | tokens claro/escuro e layout TV/desktop/celular (base do protótipo + acréscimos) |
 | `serve.py` | servidor estático: `no-store` + ETag em `data/live*`, gzip p/ JSON, MIME de `.bin`/`.topojson` |
 | `tools/export_base.py` | parquet do ETL → `data/base/` (formatos abaixo) |
@@ -93,6 +97,33 @@ uv run python site/tools/cdp_check.py --url 'http://127.0.0.1:8000/?live=data/li
 As seções com centroide do município (2.150) e as do exterior (1.351) ficam fora de pontos e H3. Elas entram nos números de zona e município, que vêm do agg e do analytics.
 
 O exterior tem vista própria (foco "Exterior", busca por país ou cidade, e uma vista no Modo TV). Cada cidade é um círculo no mapa-múndi, com a cor do modo atual e área proporcional aos votos válidos. A tabela por país abre as cidades no clique. A comparação com o 1º turno no exterior é exata, pelo agregado oficial de cada cidade já toda apurada. O swing por zona do analytics não serve lá, porque não descreve cada cidade.
+
+## Depois da apuração: história, prorrogação e log da urna
+
+```bash
+uv run python -m etl.logs_urna --rate 60 --concurrency 32   # ~499 mil logs (~87 GB brutos em data/logs/raw), ~2,3 h, retomável
+uv run python -m etl.prorrogacao                            # site/data/prorrog/{secoes.bin,resumo.json}
+uv run python -m etl.historia                               # site/data/prorrog/historia.json
+```
+
+- **História no Modo TV.** Com a fase `final`, o Modo TV deixa as vistas de acompanhamento e conta a história:
+  1. a recuperação entre os turnos;
+  2. a noite da apuração;
+  3. o modelo que previu cedo;
+  4. o resultado;
+  5. a prorrogação.
+
+  Cada cartão traz um número-herói, uma frase e, às vezes, um gráfico. O "palco" esmaece o mapa por trás. O cartão comanda o modo de cor, a camada e o foco, e as "batidas" trocam a cor no meio dele (1º → 2º turno).
+  - Navegação: ◀ ❚❚ ▶ e os chips de capítulo; no teclado, ← →, espaço e 0–5.
+  - `#tv=1&tvi=N` abre no cartão N.
+  - As frases só montam texto: os números vêm de `historia.json` e `resumo.json`.
+- **Prorrogação.** Modos de cor "Votos após 17h" do 2º e do 1º turno, na mesma escala (por 10 mil votos, hora de Brasília). O log do 2º turno traz o 1º turno da mesma urna. O exterior fica sem cor (hora local).
+  - Nesses modos, o painel direito vira a régua, a curva, os testes e os fatos.
+  - A conclusão segue uma regra: só aparece com ≥ 95% dos votos conferidos nos logs, e a variante sai do pior caso, urna a urna.
+  - Fatos de imprensa ficam em `etl/fatos_prorrogacao.json`, sempre com a fonte.
+- **Log da urna.** Abre pelo botão "ver log" na tabela de seções do local, pela busca ("zona 12 seção 40 SP") ou por `#log=<idx>`.
+  - O `serve.py` serve `/logs/{uf}/{mun}/{zona}-{secao}.txt` descompactado. Se a urna ainda não foi baixada, busca no TSE.
+  - Títulos de eleitor de mesários ficam mascarados na tela; o download é o arquivo original.
 
 ## Como a tela usa os dados
 

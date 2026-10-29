@@ -24,6 +24,17 @@ Se mudou:
 
 O `idx` não muda com o refresh, porque vem do `cs.json`. O build avisa se as principais do locais 2T divergirem do índice.
 
+## Pós-eleição: logs de urna, prorrogação e história
+
+| Script | O que faz |
+|---|---|
+| `logs_urna.py` | Baixa o `-log.jez` de cada urna do 2T (endereço pelo hash do estado do coletor).<br>Guarda o bruto em `data/logs/raw/{uf}/{mun}/{zona}-{secao}.jez` e resume em `data/logs/logs-2t.sqlite`, tabela `log`, voto a voto nos dois turnos.<br>Retomável; a ordem é embaralhada, então qualquer parcial é uma amostra. |
+| `prorrogacao.py` | Converte para a hora de Brasília: o fuso sai da abertura, às 8h de Brasília, pela moda do município; o exterior fica em hora local.<br>Gera `site/data/prorrog/secoes.bin` (colunas por `idx`) e `resumo.json`: curvas por minuto 1T × 2T, encerramentos por minuto, cenários contra a margem, cobertura, speedrun e os fatos de `fatos_prorrogacao.json`. |
+| `historia.py` | Números dos capítulos 1–4 da história, a partir de analytics, agg, sections.bin e base. Gera `site/data/prorrog/historia.json`. |
+| `fatos_prorrogacao.json` | Linha do tempo da decisão e números do TSE vindos da imprensa, com fonte e `confirmado`. |
+
+Validação: com toda a cobertura, os votos do log batem com o comparecimento do BU em mais de 99,6% das urnas, e o total de votos depois das 17h fica na ordem do balanço do TSE (34.393).
+
 ## Fontes
 
 | Fonte | Uso |

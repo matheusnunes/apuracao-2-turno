@@ -16,20 +16,26 @@ const hms = (x) => `${String(Math.floor(x / 3600)).padStart(2, '0')}:${String(Ma
 const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const mask = (m) => (m.includes('/') ? m : m.replace(/\d{9,}/g, (d) => `${d.slice(0, 2)}••••${d.slice(-2)}`));
 
-/** texto do log -> linhas e resumo por turno (horas em Brasília; exterior fica na hora local) */
-export function parseUrnaLog(text, isExt) {
-  const lines = [], T = {};
-  for (const t of [1, 2]) T[t] = { open: null, sel: null, close: null, allp: null, votes: [], durs: [], hab: null, off: 0 };
+const newState = () => ({ open: null, sel: null, close: null, allp: null, votes: [], durs: [], hab: null, off: 0, id: {} });
+const sameId = (id, want) => !!(id.M && want) && [id.M, id.Z, id.S].map(Number).join('-') === want.split('-').map(Number).join('-');
+/** texto do log -> linhas e resumo por turno (horas em Brasília; exterior fica na hora local).
+ *  Urna trocada no dia: o texto traz um bloco por arquivo ("### arquivo: …"). O 2º turno soma as urnas desta seção;
+ *  o 1º turno só vale da urna que estava nesta mesma seção (want = "mun-zona-secao"). */
+export function parseUrnaLog(text, isExt, want = null) {
+  const lines = [], blocks = [[newState(), newState()]];
+  let B = blocks[0];
   for (const raw of text.split('\n')) {
+    if (raw.startsWith('### arquivo:')) { B = [newState(), newState()]; blocks.push(B); lines.push({ d: '', t: '', sec: 0, lvl: '', app: '', msg: raw.slice(4).trim(), turno: 0, k: 'arquivo', blk: blocks.length - 1 }); continue; }
     if (raw.length < 20) continue;
     const p = raw.split('\t');
     const d = raw.slice(0, 10), tt = DAYS[d] || 0;
     const sec = +raw.slice(11, 13) * 3600 + +raw.slice(14, 16) * 60 + +raw.slice(17, 19);
     // títulos de eleitor de mesários (9+ dígitos) ficam mascarados na tela; o download é o arquivo original
-    const L = { d, t: raw.slice(11, 19), sec, lvl: p[1] || '', app: p[3] || '', msg: mask(p[4] || ''), turno: tt, k: '' };
+    const L = { d, t: raw.slice(11, 19), sec, lvl: p[1] || '', app: p[3] || '', msg: mask(p[4] || ''), turno: tt, k: '', blk: blocks.length - 1 };
     lines.push(L);
     if (!tt) continue;
-    const s = T[tt];
+    const s = B[tt - 1];
+    if (/^(Município|Zona Eleitoral|Seção Eleitoral): /.test(p[4] || '')) { const [k, v] = p[4].split(': '); s.id[k[0]] = v.trim(); }
     if (L.msg === VOTO) { L.k = 'voto'; s.votes.push(sec); s.durs.push(s.hab != null && sec >= s.hab ? sec - s.hab : null); s.hab = null; }
     else if (L.msg === HAB) s.hab = sec;
     else {
@@ -40,6 +46,26 @@ export function parseUrnaLog(text, isExt) {
       if (L.k === 'todos votaram?') s.allp = /SIM\s*$/.test(L.msg);
     }
   }
+  const T = {}, use = { 1: new Set(), 2: new Set() };
+  for (const t of [1, 2]) {
+    const ok = blocks.map((b, i) => [b[t - 1], i]).filter(([s]) => s.votes.length || s.open != null)
+      .filter(([s]) => (t === 2 ? !s.id.M || !want || sameId(s.id, want) : !want || sameId(s.id, want)));
+    if (t === 1 && !want && ok.length > 1) ok.length = 1;
+    const s = newState();
+    for (const [b, i] of ok) {
+      use[t].add(i);
+      b.votes.forEach((x, k) => { s.votes.push(x); s.durs.push(b.durs[k]); });
+      if (b.open != null && (s.open == null || b.open < s.open)) s.open = b.open;
+      if (b.sel != null && (s.sel == null || b.sel > s.sel)) s.sel = b.sel;
+      if (b.close != null && (s.close == null || b.close > s.close)) { s.close = b.close; s.allp = b.allp; }
+    }
+    const ord = s.votes.map((x, k) => k).sort((a, b) => s.votes[a] - s.votes[b]);
+    s.votes = ord.map((k) => s.votes[k]); s.durs = ord.map((k) => s.durs[k]);
+    s.otherSec = t === 1 && !ok.length && blocks.some((b) => b[0].votes.length);
+    s.nUrnas = ok.length;
+    T[t] = s;
+  }
+  for (const L of lines) if (L.turno && !use[L.turno].has(L.blk)) L.excl = true;
   for (const t of [1, 2]) {
     const s = T[t];
     // relógio da urna = hora local; abertura às 8h de Brasília em todo o país (exterior: hora local, sem conversão)
@@ -52,7 +78,7 @@ export function parseUrnaLog(text, isExt) {
     s.fast = ds.length ? ds[0] : null; s.med = ds.length ? ds[Math.floor(ds.length / 2)] : null;
   }
   for (const L of lines) if (L.turno) L.brt = L.sec - T[L.turno].off * 3600;
-  return { lines, T };
+  return { lines, T, nArq: blocks.length - (blocks[0][0].votes.length || blocks[0][1].votes.length || blocks[0][0].open != null || blocks[0][1].open != null ? 0 : 1) };
 }
 
 /** linha do tempo da urna: votos acumulados (1º turno tracejado × 2º turno) e um "código de barras" com um traço por voto,
@@ -112,10 +138,10 @@ function chartBox(T, zoom0) {
 function statBlock(t, s) {
   const b = el('div', 'ul-stat');
   b.append(el('div', 'kicker', t === 2 ? '2º turno · 25/10' : '1º turno · 04/10'));
-  if (!s.votes.length) { b.append(el('div', 'sub', t === 1 ? 'sem registro do 1º turno neste log (outra urna no 1º turno)' : 'sem votos no log')); return b; }
+  if (!s.votes.length) { b.append(el('div', 'sub', t === 1 ? (s.otherSec ? 'no 1º turno esta urna estava em outra seção: fora da comparação' : 'sem registro do 1º turno neste log (outra urna no 1º turno)') : 'sem votos no log')); return b; }
   const row = (k, v) => { const r = el('div', 'r'); r.append(el('span', null, k), el('b', null, v)); b.append(r); };
   const f = (x) => (x == null ? '—' : hms(x - s.off * 3600));
-  row('Votos no log', fInt(s.votes.length));
+  row('Votos no log', fInt(s.votes.length) + (s.nUrnas > 1 ? ` (${s.nUrnas} urnas)` : ''));
   row('Abertura · encerramento', `${f(s.open)} · ${f(s.sel)}`);
   row('Último voto', hms(s.vb[s.vb.length - 1]));
   row('Depois das 17h', `${fInt(s.late)} (${fPct(100 * s.late / s.votes.length, 1)})`);
@@ -141,13 +167,13 @@ export async function openUrnaLog(info) {
   head.append(hl, x); box.append(head);
   const body = el('div', 'ul-body', 'Carregando o log…'); box.append(body);
   let parsed;
-  try { parsed = parseUrnaLog(await fetchUrnaLog(info.uf, info.cdMun, info.zona, info.secao), info.isExt); }
+  try { parsed = parseUrnaLog(await fetchUrnaLog(info.uf, info.cdMun, info.zona, info.secao), info.isExt, `${info.cdMun}-${info.zona}-${info.secao}`); }
   catch (e) { body.textContent = `Não consegui abrir o log: ${e.message}`; return; }
   if (!open || open.bg !== bg) return;
   const { lines, T } = parsed;
   body.replaceChildren();
   const offTxt = T[2].off ? ` · relógio da urna em hora local (${T[2].off > 0 ? '+' : '−'}${Math.abs(T[2].off)} h de Brasília); resumo e gráfico convertidos para Brasília` : info.isExt ? ' · exterior: hora local do país' : '';
-  body.append(el('div', 'sub', `${fInt(lines.length)} linhas, da carga da urna ao fim do 2º turno${offTxt}.`));
+  body.append(el('div', 'sub', `${fInt(lines.length)} linhas, da carga da urna ao fim do 2º turno${offTxt}.${parsed.nArq > 1 ? ` Urna trocada no dia: ${parsed.nArq} arquivos de log (separados abaixo); linhas de outra seção ficam esmaecidas.` : ''}`));
   const top = el('div', 'ul-top'); top.append(chartBox(T, info.zoom || 'dia'), statBlock(2, T[2]), statBlock(1, T[1])); body.append(top);
   // filtros
   const bar = el('div', 'ul-bar'); const st = { turno: 2, vota: true, q: '' };
@@ -164,11 +190,12 @@ export async function openUrnaLog(info) {
     const out = [];
     for (let i = 0; i < lines.length; i++) {
       const L = lines[i];
+      if (L.k === 'arquivo') { out.push(`<div class="arq"><span class="ms">${esc(L.msg)}</span></div>`); continue; }
       if (st.turno && L.turno !== st.turno) continue;
       if (st.vota && L.app !== 'VOTA') continue;
       if (st.q && !L.msg.toLowerCase().includes(st.q)) continue;
       const late = L.turno && L.brt >= 17 * 3600;
-      const cls = `${L.k === 'voto' ? 'v' : L.k ? 'k' : ''}${late ? ' late' : ''}`;
+      const cls = `${L.k === 'voto' ? 'v' : L.k ? 'k' : ''}${late && L.turno === 2 ? ' late' : ''}${L.excl ? ' excl' : ''}`;
       out.push(`<div class="${cls}" data-i="${i}"><span class="tm">${L.d.slice(0, 5)} ${L.t}</span><span class="ap">${esc(L.app)}</span><span class="ms">${esc(L.msg)}${L.k && L.k !== 'voto' ? ` <em>${L.k}</em>` : ''}</span></div>`);
       if (out.length >= 20000) break;
     }
