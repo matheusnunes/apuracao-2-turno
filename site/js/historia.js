@@ -179,7 +179,8 @@ export function buildStory(ctx) {
   add({ ch: 5, key: 'pr-padrao', title: 'Teste 3: no padrão de cada urna', hero: `${fInt(Math.abs(ef))}`, heroSub: `votos de margem para ${ef >= 0 ? A : Bn}, se os tardios votaram como o resto da urna`,
     text: `Nas urnas com voto tardio, ${A} teve ${fPct(c.pct_lula_ponderado_tardio, 1)} dos válidos (no país, ${fPct(F.l_pct_valid, 1)}). Sem esses votos, ${A} venceria por ${fInt(c.proporcional.margem)}.`, map: { mode: 'tardio2', layer: 'hex', focus: br } });
   let concl;
-  if (!(cov >= 95)) concl = { title: 'Conclusão: aguardando os logs', hero: fPct(cov, 0), heroSub: 'dos votos conferidos nos logs', text: 'A conclusão só aparece com 95% dos votos conferidos.' };
+  if (!(cov >= 95)) concl = { title: 'Conclusão: ainda conferindo as urnas', hero: fPct(cov, 0), heroSub: 'dos votos do país já tiveram o horário conferido no log da urna',
+    text: `Os logs das urnas ainda estão sendo baixados. Os números acima são de uma amostra aleatória; a conclusão só é afirmada quando passar de 95% dos votos.` };
   else if (c.margem_pior_caso_conservador > 0) concl = { title: 'O que os dados dizem', hero: fPct(c.pct_tardios_sobre_margem, 2), heroSub: 'é o peso de todos os votos depois das 17h na diferença final', text: `Nem no pior caso a prorrogação mudaria o vencedor: os votos depois das 17h não decidiram a eleição.${fx.tse ? ` Bate com a avaliação do TSE (“${fx.tse.avaliacao}”). Os números são nossos, dos logs.` : ''}` };
   else if (c.proporcional.margem > 0) concl = { title: 'O teto não descarta', hero: fInt(c.proporcional.margem), heroSub: `margem de ${A} no padrão de cada urna`, text: 'No pior caso, os votos tardios superam a diferença. Um efeito decisivo só existiria se esses votos fossem muito diferentes do resto da mesma urna.' };
   else concl = { title: 'Os números não confirmam', hero: fInt(Math.abs(ef)), heroSub: 'votos de efeito, acima da diferença final', text: 'No padrão de cada urna, os votos depois das 17h somam mais que a diferença final: os dados não confirmam a avaliação do TSE.' };
@@ -187,5 +188,7 @@ export function buildStory(ctx) {
   const spd = PR.speedrun;
   if (spd && isNum(spd.min_s)) add({ ch: 5, key: 'pr-bastidor', title: 'Bastidor: quanto dura um voto', hero: `${spd.mediana_s} s`, heroSub: 'tempo típico entre liberar a urna e confirmar o voto (mediana, 2º turno)',
     text: `No 1º turno, com cinco cargos, a mediana foi ${spd.mediana_1t_s ?? '—'} s. O voto mais rápido do 2º turno: ${spd.min_s} s, em ${fInt(spd.n_secoes_no_min)} urnas. Clique numa seção (ou busque “zona 12 seção 40 SP”) para abrir o log da urna.`, map: { mode: 'tardio2', layer: 'auto', focus: br }, dur: 12 });
+  if (cov < 99.5) for (const c of cards) if (c.ch === 5 && !['pr-fato', 'pr-conclusao'].includes(c.key)) // amostra: números ainda vão mudar um pouco
+    c.foot = `${c.foot ? c.foot + ' ' : ''}Amostra parcial: ${fPct(cov, 0)} dos votos conferidos nos logs até agora.`;
   return cards;
 }
