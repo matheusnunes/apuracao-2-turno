@@ -1234,7 +1234,7 @@ function tidy(parts) { const out = parts.filter((p) => p !== '' && p != null); c
 const votoS = (v) => (isNum(v) && Math.abs(v) >= 1.995 ? 'votos' : 'voto');
 // Toda frase do Modo TV sai de dados atuais; cláusulas condicionais só aparecem quando valem (fase/dado presente).
 /** apuração encerrada: o Modo TV passa a contar a história (historia.js) em vez das vistas de acompanhamento */
-let storyLoading = false;
+let storyLoading = false, storyFailed = false;
 function storyViews() {
   const V = historiaData(), P = prorrog();
   if (!V || !P) {
@@ -1242,7 +1242,7 @@ function storyViews() {
       storyLoading = true;
       Promise.allSettled([loadHistoria(), ensurePr()]).then((r) => {
         storyLoading = false;
-        r.forEach((x) => { if (x.status === 'rejected') logErr('história', x.reason); });
+        r.forEach((x) => { if (x.status === 'rejected') { storyFailed = true; logErr('história', x.reason); } });
         if (historiaData() && S.tv.on) { S.tv.views = []; S.tv.idx = -1; safe('tv', tvNext); }
       });
     }
@@ -1253,7 +1253,10 @@ function storyViews() {
     beats: (c.beats || []).map((b) => ({ ...b })), title: () => c.title, text: () => [c.text] }));
 }
 function buildTvViews() {
-  if (phase() === 'final') { const sv = safe('história', storyViews); if (sv?.length) return sv; }
+  if (phase() === 'final') { // enquanto a história carrega, a TV espera (sem piscar as vistas da apuração); se falhar, volta a elas
+    const sv = safe('história', storyViews); if (sv?.length) return sv;
+    if (!storyFailed) return [];
+  }
   const v = [], A = an(), req = reqDelta();
   if (!comparing()) {
     const b = A?.baseline_1t || B.meta.baseline_1t;
@@ -1334,8 +1337,11 @@ function tvNext() {
 }
 /** teclado da história: ← → navegam, espaço pausa, 0–5 pulam para o capítulo (só com a história na tela) */
 function storyKey(e) {
-  if (!S.tv.on || !S.tv.cur?.story || e.target.closest?.('input, select, textarea, dialog') || document.querySelector('.ul-bg')) return false;
-  if (e.key === 'ArrowRight') tvGo(S.tv.idx + 1);
+  if (e.target.closest?.('input, select, textarea, dialog') || document.querySelector('.ul-bg') || e.metaKey || e.ctrlKey || e.altKey) return false;
+  if ((e.key === 'h' || e.key === 'H') && phase() === 'final') { if (storyOn()) hideStory(); else showStory(); e.preventDefault(); return true; }
+  if (!storyOn()) return false;
+  if (e.key === 'Escape') hideStory();
+  else if (e.key === 'ArrowRight') tvGo(S.tv.idx + 1);
   else if (e.key === 'ArrowLeft') tvGo(S.tv.idx - 1);
   else if (e.key === ' ') { if (Date.now() < S.tv.pausedUntil) S.tv.pausedUntil = 0; else S.tv.pausedUntil = Date.now() + 10 * 60000; renderTvCap(); }
   else if (/^[0-5]$/.test(e.key)) { const i = S.tv.views.findIndex((v) => v.story?.ch === +e.key); if (i >= 0) tvGo(i); else return false; }
@@ -1364,7 +1370,8 @@ function renderStoryCap(cap, c) {
   const bz = el('button', 'st-btn', paused ? '▶' : '❚❚'); bz.title = paused ? 'continuar (espaço)' : 'pausar (espaço)';
   bz.onclick = () => { if (Date.now() < S.tv.pausedUntil) { S.tv.pausedUntil = 0; $('#btnTv').classList.remove('paused'); } else S.tv.pausedUntil = Date.now() + 10 * 60000; renderTvCap(); };
   const bn = el('button', 'st-btn', '▶'); bn.title = 'próximo (→)'; bn.onclick = () => tvGo(S.tv.idx + 1);
-  ctr.append(bp, bz, bn, el('span', 'st-n', `${S.tv.idx + 1}/${views.length}${paused ? ' · pausado' : ''}`));
+  const bx = el('button', 'st-btn st-x', '✕'); bx.title = 'fechar a história (Esc) e explorar o mapa; reabre no botão História ou com H'; bx.onclick = hideStory;
+  ctr.append(bp, bz, bn, el('span', 'st-n', `${S.tv.idx + 1}/${views.length}${paused ? ' · pausado' : ''}`), bx);
   const top = el('div', 'st-top'); top.append(nav, ctr);
   const hero = el('div', 'st-hero'); hero.append(el('div', 'st-big', c.hero || ''), el('div', 'st-hsub', c.heroSub || ''));
   cap.append(top, el('div', 'k', CHAPTERS[c.ch] || ''), el('div', 'h', c.title), hero, el('div', 'p', c.text || ''));
@@ -1390,9 +1397,23 @@ function userAct() {
   S.tv.pausedUntil = Date.now() + 60000;
   $('#btnTv').classList.add('paused');
 }
+/** história (apuração encerrada): esconder deixa o mapa livre, no estado em que o cartão o deixou; mostrar retoma do mesmo cartão */
+const storyOn = () => S.tv.on && !!S.tv.cur?.story;
+function hideStory() {
+  S.tv.on = false; S.tv.pausedUntil = 0; S.tv.cur = null;
+  renderTvCap(); tvLoop(); writeHash();
+}
+function showStory() {
+  const resume = S.tv.views.length && S.tv.views[0]?.story;
+  if (resume) S.tv.idx = Math.max(-1, S.tv.idx - 1); else { S.tv.views = []; S.tv.idx = -1; }
+  S.tv.on = true; S.tv.pausedUntil = 0; $('#btnTv').classList.remove('paused');
+  tvNext(); tvLoop(); writeHash();
+}
 function tvLoop() {
-  const btn = $('#btnTv');
+  const btn = $('#btnTv'), bs = $('#btnStory');
   if (!S.tv.ready) return; // só depois do boot (restauração da hash)
+  bs.hidden = phase() !== 'final';
+  bs.classList.toggle('on', storyOn()); bs.textContent = storyOn() ? '✕ História' : '▶ História';
   if (!S.tv.on) { btn.className = 'chip tv'; btn.textContent = '▶ Modo TV'; return; }
   const now = Date.now(), paused = now < S.tv.pausedUntil;
   btn.className = 'chip tv on' + (paused ? ' paused' : '');
@@ -1490,7 +1511,8 @@ function wireControls() {
     tvLoop(); writeHash();
   };
   let lastMove = null;
-  window.addEventListener('pointerdown', (e) => { if (!e.target.closest('#btnTv, #tvcap.story .st-top')) userAct(); }, true);
+  window.addEventListener('pointerdown', (e) => { if (!e.target.closest('#btnTv, #btnStory, #tvcap.story .st-top')) userAct(); }, true);
+  $('#btnStory').onclick = () => { if (storyOn()) hideStory(); else showStory(); };
   window.addEventListener('wheel', userAct, { passive: true, capture: true });
   window.addEventListener('keydown', (e) => { if (!storyKey(e)) userAct(); }, true);
   window.addEventListener('pointermove', (e) => { if (lastMove && Math.hypot(e.clientX - lastMove[0], e.clientY - lastMove[1]) > 6) userAct(); lastMove = [e.clientX, e.clientY]; }, true);
