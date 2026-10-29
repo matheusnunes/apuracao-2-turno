@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1080">
+<title>Relógio das urnas</title>
+<!--
+  Cards para redes sociais (1080×1350, retrato) sobre a prorrogação do 2º turno de 2026.
+  Abra ?n=1..7. Todos os números vêm de ../data/prorrog/resumo.json e historia.json na hora de renderizar.
+  Enquanto cenarios.pct_cobertura_logs < 95, cada card mostra a tarja "PRÉVIA · dados parciais".
+  PNGs: uv run python site/tools/render_cards.py  (salva em data/social/card-N.png e data/social/textos.md)
+-->
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: light;
+    --page: #f6f4ef;      /* papel, fundo do card */
+    --ink: #141414;       /* texto principal (16,8:1) */
+    --ink-2: #45433e;     /* texto secundário (9,0:1) */
+    --muted: #5f5c55;     /* rodapé e eixos (6,1:1) */
+    --grid: #e2ded4;
+    --axis: #c3beb2;
+    --track: #e9e5db;
+    --line: rgba(20, 20, 20, .14);
+    --data: #2b2a27;      /* dado neutro da prorrogação */
+    --ctx: #8c887f;       /* contexto (3,2:1) */
+    --t1: #00897b;        /* 1º turno, sem prorrogação */
+    --lula: #d13438;      /* só quando o dado é sobre o candidato */
+    --flavio: #2a78d6;
+    --band: rgba(214, 140, 20, .16);  /* janela "depois das 17h" */
+    --warn: #b26b00;      /* tarja de prévia (com rótulo) */
+  }
+  html, body { margin: 0; background: #d9d6ce; }
+  body { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink);
+         -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+  #card { width: 1080px; height: 1350px; background: var(--page); position: relative; overflow: hidden;
+          display: flex; flex-direction: column; padding: 58px 80px 50px; box-sizing: border-box; }
+
+  /* topo: identidade própria e neutra + contador */
+  .top { display: flex; align-items: center; justify-content: space-between; height: 48px; flex: none; }
+  .brand { display: flex; align-items: center; gap: 14px; font-size: 22px; font-weight: 700; letter-spacing: .1em;
+           text-transform: uppercase; color: var(--ink-2); }
+  .top-r { display: flex; align-items: center; gap: 18px; }
+  .pill { font-size: 20px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink);
+          border: 2px solid var(--warn); background: rgba(178, 107, 0, .08); border-radius: 999px; padding: 5px 16px 6px; }
+  .count { font-size: 24px; font-weight: 700; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+  main { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+  main > * { flex-shrink: 0; }
+  /* tudo abaixo do título fica centrado no espaço que sobra (o título não muda de lugar entre os cards) */
+  .stack { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; justify-content: safe center; padding-bottom: 6px; }
+  .stack > * { flex-shrink: 0; }
+  .title { font-size: 58px; line-height: 1.1; font-weight: 800; letter-spacing: -.018em; margin: 46px 0 0; text-wrap: balance; }
+  .hero { font-size: 190px; line-height: .95; font-weight: 800; letter-spacing: -.04em; margin: 34px 0 0; white-space: nowrap;
+          overflow: hidden; }
+  .hero-sub { font-size: 36px; line-height: 1.25; font-weight: 600; color: var(--ink-2); margin: 12px 0 0; text-wrap: pretty; }
+  .viz { margin: 40px 0 0; }
+  .viz svg { display: block; overflow: visible; }
+  .body { font-size: 36px; line-height: 1.36; font-weight: 500; margin: 36px 0 0; text-wrap: pretty; }
+  .note { font-size: 26px; line-height: 1.38; color: var(--ink-2); margin: 22px 0 0; text-wrap: pretty; }
+  .note b { color: var(--ink); font-weight: 700; }
+  .check { display: grid; grid-template-columns: .8fr 1.2fr; gap: 0 28px; margin: 26px 0 0; padding: 18px 0 0; border-top: 2px solid var(--line); }
+  .check div { font-size: 25px; line-height: 1.35; color: var(--ink-2); }
+  .check b { display: block; font-size: 40px; line-height: 1.15; color: var(--ink); font-weight: 800; letter-spacing: -.01em; }
+
+  /* linha do tempo (card 2) */
+  .tl { list-style: none; margin: 44px 0 0; padding: 0; position: relative; }
+  .tl::before { content: ""; position: absolute; left: 141px; top: 18px; bottom: -40px; width: 3px; background: var(--axis); }
+  .tl li { display: grid; grid-template-columns: 116px 54px 1fr; align-items: start; margin: 0 0 24px; }
+  .tl .h { font-size: 31px; font-weight: 700; line-height: 1.3; font-variant-numeric: tabular-nums; }
+  .tl .d { width: 22px; height: 22px; border-radius: 50%; margin: 8px 0 0 15px; box-shadow: 0 0 0 5px var(--page); position: relative; }
+  .tl .t { font-size: 31px; line-height: 1.3; color: var(--ink); text-wrap: pretty; }
+  .d.lula { background: var(--lula); } .d.flavio { background: var(--flavio); } .d.neutro { background: var(--data); }
+  .dec { display: grid; grid-template-columns: 116px 54px 1fr; margin-top: 4px; position: relative; }
+  .dec .d { width: 30px; height: 30px; border-radius: 50%; background: var(--data); margin: 22px 0 0 11px; box-shadow: 0 0 0 5px var(--page); }
+  .dec .lab { grid-column: 1 / 2; font-size: 22px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); padding-top: 28px; }
+  .dec .hero { grid-column: 3; margin: 0; font-size: 120px; letter-spacing: -.02em; }
+  .dec .hero-sub { grid-column: 3; }
+
+  /* caixa "confira" (card 7) */
+  .box { margin: 38px 0 0; border: 2px solid var(--line); border-radius: 22px; padding: 28px 34px 30px; background: rgba(255, 255, 255, .45); }
+  .box h2 { margin: 0 0 12px; font-size: 32px; font-weight: 800; letter-spacing: -.005em; }
+  .box p { margin: 10px 0 0; font-size: 27px; line-height: 1.38; color: var(--ink-2); }
+  .box p b { color: var(--ink); }
+
+  /* textos dos gráficos: sempre tokens de texto, nunca a cor da série */
+  .tx { fill: var(--ink-2); font-size: 26px; font-weight: 500; }
+  .tx-s { fill: var(--muted); font-size: 23px; font-weight: 500; font-variant-numeric: tabular-nums; }
+  .tx-b { fill: var(--ink); font-size: 30px; font-weight: 700; }
+  .tx-xl { fill: var(--ink); font-size: 46px; font-weight: 800; letter-spacing: -.01em; }
+
+  footer { flex: none; border-top: 2px solid var(--line); padding-top: 18px; margin-top: 26px; display: flex;
+           justify-content: space-between; gap: 30px; align-items: flex-end; }
+  .src { font-size: 23px; line-height: 1.4; color: var(--muted); }
+  .src b { color: var(--ink-2); font-weight: 600; }
+  .swipe { flex: none; font-size: 24px; font-weight: 700; color: var(--ink-2); white-space: nowrap; }
+  .err { font-size: 30px; color: #a01010; margin-top: 40px; }
+</style>
+</head>
+<body>
+<div id="card"></div>
+<script>
+'use strict';
+/* =========================== utilidades =========================== */
+const N_CARDS = 7, W = 920;
+const NS = 'http://www.w3.org/2000/svg';
+const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
+const nf = new Intl.NumberFormat('pt-BR');
+const fInt = (v) => (isNum(v) ? nf.format(Math.round(v)) : '—');
+const fDec = (v, d) => (isNum(v) ? v.toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d }) : '—');
+const fPct = (v, d = 0) => (isNum(v) ? `${fDec(v, d)}%` : '—');
+const fPctFloor = (v) => (isNum(v) ? `${Math.floor(v)}%` : '—');   // "já tinham encerrado": nunca arredonda para cima
+const fPctSmall = (v) => (isNum(v) ? fPct(v, v >= 0.1 ? 1 : v >= 0.01 ? 2 : 3) : '—');
+const hm = (min) => `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`;
+const fCompact = (v) => (v >= 1e6 ? `${fDec(v / 1e6, 1)} mi` : v >= 1e3 ? `${nf.format(Math.round(v / 1e3))} mil` : nf.format(v));
+const joinPt = (xs) => (xs.length <= 1 ? xs.join('') : `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}`);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const OUTLETS = [[/revistaoeste/, 'Revista Oeste'], [/cnnbrasil/, 'CNN Brasil'], [/poder360/, 'Poder360'],
+                 [/correiodamanha/, 'Correio da Manhã'], [/gazetadoparana/, 'Gazeta do Paraná']];
+const outletOf = (url) => (OUTLETS.find(([re]) => re.test(url || '')) || [null, null])[1];
+const fontes = (s) => [...new Set(String(s || '').split(/[;,]/).map((x) => x.trim()).filter(Boolean))];
+
+function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+function svgEl(w, h, label) {
+  const s = document.createElementNS(NS, 'svg');
+  s.setAttribute('viewBox', `0 0 ${w} ${h}`); s.setAttribute('width', w); s.setAttribute('height', h);
+  s.setAttribute('role', 'img'); s.setAttribute('aria-label', label);
+  return s;
+}
+function add(p, tag, attrs = {}, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) if (attrs[k] != null) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  p.append(e); return e;
+}
+/** coluna com ponta de dado arredondada e base reta */
+function colPath(x, base, w, h, r = 6) {
+  if (h <= 0) return '';
+  r = Math.min(r, h, w / 2);
+  const y = base - h;
+  return `M${x},${base}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${base}Z`;
+}
+/** barra horizontal com ponta arredondada à direita e base reta à esquerda */
+function barPath(x, y, w, h, r = 8) {
+  if (w <= 0) return '';
+  r = Math.min(r, w, h / 2);
+  return `M${x},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h - r}Q${x + w},${y + h} ${x + w - r},${y + h}H${x}Z`;
+}
+function niceStep(max, n = 3) {
+  const raw = max / n, p = 10 ** Math.floor(Math.log10(raw)), m = raw / p;
+  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 4 ? 4 : m <= 5 ? 5 : 10) * p;
+}
+
+/* =========================== dados =========================== */
+async function getJSON(path) {
+  const r = await fetch(`${path}?t=${Date.now()}`, { cache: 'no-store' });
+  if (!r.ok) throw new Error(`HTTP ${r.status} em ${path}`);
+  return r.json();
+}
+
+/** % das urnas (2º turno, com log, sem exterior) encerradas até o fim do minuto `ate` (minutos desde 0h, Brasília) */
+function closedBy(R, turno, ate) {
+  const E = R.encerramentos, a = E && E[turno];
+  if (!a) return null;
+  let s = 0, tot = 0;
+  a.forEach((v, i) => { tot += v; if (E.min0 + i <= ate) s += v; });
+  return tot ? (100 * s) / tot : null;
+}
+
+/** Tudo o que os cards mostram, lido dos JSON. Aqui só há somas e razões diretas, nenhuma estimativa nova. */
+function derive(R, H) {
+  const c = R.cenarios || {}, u1 = c.mesma_urna_1t || {}, fx = R.fatos || {}, F = H.final || {};
+  const cov = c.pct_cobertura_logs;
+  const preview = !(cov >= 95);
+  const margin = isNum(F.margin_votes) ? F.margin_votes : c.margem;
+  // pior caso: tira de Lula, urna a urna, todo voto depois das 17h. Na prévia, o "conservador" também dá folga às urnas
+  // ainda sem log (na maior taxa estadual de votos tardios). Usa o menor dos dois.
+  const worstCands = [c.pior_caso_remove && c.pior_caso_remove.margem, c.margem_pior_caso_conservador].filter(isNum);
+  const worst = worstCands.length ? Math.min(...worstCands) : null;
+  const extrap = isNum(c.margem_pior_caso_conservador) && c.margem_pior_caso_conservador === worst ? (c.tardios_extrapolados_sem_log || 0) : 0;
+  const tl = fx.linha_do_tempo || [];
+  const decIdx = tl.findIndex((e) => /estende|prorroga a vota/i.test(e.texto || ''));
+  const dec = decIdx >= 0 ? tl[decIdx] : null;
+  const decTimes = dec ? [...String(dec.hora).matchAll(/(\d{1,2})h(\d{2})/g)].map((m) => +m[1] * 60 + +m[2]) : [];
+  const decEnd = decTimes.length ? decTimes[decTimes.length - 1] : 17 * 60 + 3;
+  const decStart = decTimes.length ? decTimes[0] : decEnd;
+  const tse = fx.tse || null;
+  return {
+    R, H, c, u1, fx, F, cov, preview, margin, worst, extrap, removed: isNum(worst) && isNum(margin) ? margin - worst : null,
+    lulaPct: F.l_pct_valid, flavioPct: F.o_pct_valid,
+    tl, dec, decStart, decEnd, decHora: dec ? dec.hora : '≈17h03',
+    closedDec: closedBy(R, 't2', decEnd), closed1710: closedBy(R, 't2', 17 * 60 + 10),
+    pct17: c.pct_votos_apos_17h, per10k: isNum(c.pct_votos_apos_17h) ? c.pct_votos_apos_17h * 100 : null,
+    share1705: c.tardios > 0 ? (100 * c.tardios_17h_17h05) / c.tardios : null,
+    share18: c.tardios > 0 ? (100 * c.tardios_18h) / c.tardios : null,
+    ratio: u1.razao_1t_2t, spd: R.speedrun || {},
+    tse, tseOutlet: tse ? outletOf(tse.url) : null,
+    urnas: c.secoes_com_log,
+    geradoEm: R.gerado_em,
+  };
+}
+
+/* =========================== textos de fonte =========================== */
+const SRC_LOGS = '<b>Logs de urna do TSE</b> (dados abertos) · análise própria';
+function prevLine(D) {
+  if (!D.preview) return '';
+  const g = D.geradoEm ? new Date(D.geradoEm) : null;
+  const quando = g && !isNaN(g) ? ` (${g.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })}, ${g.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }).replace(':', 'h')})` : '';
+  return `<br>Prévia: ${fPct(D.cov, 0)} dos votos conferidos nos logs${quando}.`;
+}
+function decSources(D) { return joinPt(fontes(D.dec && D.dec.fonte)); }
+
+/* =========================== frases que dependem dos números =========================== */
+/** quanto dos votos tardios foi a fila das 17h00–17h05 */
+const filaQ = (D) => (D.share1705 >= 70 ? 'quase todos' : D.share1705 >= 50 ? 'a maioria' : 'parte');
+const plural = (D) => D.share1705 >= 70;   // "quase todos eram" × "a maioria era"
+const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+/** 1º turno × 2º turno: razão e frase (a razão pode, em tese, ser < 1) */
+function ratioTxt(D) {
+  const r = D.ratio;
+  if (!isNum(r) || r <= 0) return { hero: '—', sub: 'votos depois das 17h: 1º × 2º turno, nas mesmas urnas', title: 'O mesmo relógio no 1º turno, sem prorrogação', more: true };
+  if (r >= 1) return { hero: `${fDec(Math.floor(r), 0)}×`, sub: 'mais votos depois das 17h no 1º turno, nas mesmas urnas',
+                       title: r >= 2 ? 'No 1º turno, sem prorrogação, a fila foi bem maior' : 'No 1º turno, sem prorrogação, a fila foi maior', more: true, n: Math.floor(r) };
+  return { hero: `${fDec(1 / r, 1)}×`, sub: 'mais votos depois das 17h no 2º turno, nas mesmas urnas',
+           title: 'No 1º turno, sem prorrogação, houve menos votos depois das 17h', more: false, n: 1 / r };
+}
+
+/* =========================== conclusão escolhida pelos dados =========================== */
+function verdict(D) {
+  const p = D.c.proporcional || {};
+  if (isNum(D.worst) && D.worst > 0) return D.preview
+    ? { key: 'ok-previa', title: 'Até aqui, nem o pior caso muda o vencedor',
+        body: `Poucos votaram depois das 17h, e ${filaQ(D)} ${plural(D) ? 'estavam' : 'estava'} na fila. A conclusão final sai com todos os logs conferidos.` }
+    : { key: 'ok', title: 'A prorrogação não decidiu a eleição',
+        body: `Poucos votaram depois das 17h, e ${filaQ(D)} ${plural(D) ? 'estavam' : 'estava'} na fila. Nem no pior caso o resultado muda.` };
+  if (isNum(p.margem) && p.margem > 0) return { key: 'teto', title: 'No pior caso, os votos depois das 17h superam a diferença',
+    body: 'O resultado só mudaria se esses votos fossem muito diferentes do resto da mesma urna. O log não mostra em quem se votou.' };
+  return { key: 'nao', title: 'Os votos depois das 17h pesam mais que a diferença final',
+    body: 'Os números não sustentam que a prorrogação foi irrelevante. Os logs e o método estão abertos para conferência.' };
+}
+
+/* =========================== gráficos =========================== */
+// Card 1: resultado (dado sobre os candidatos: vermelho/azul)
+function vizResult(D) {
+  const h = 172, s = svgEl(W, h, `Votos válidos no 2º turno: Lula ${fPct(D.lulaPct, 2)}, Flávio ${fPct(D.flavioPct, 2)}`);
+  const y = 66, bh = 52, gap = 4, wl = (W - gap) * D.lulaPct / 100;
+  add(s, 'circle', { cx: 9, cy: 24, r: 9, style: 'fill:var(--lula)' });
+  add(s, 'text', { x: 28, y: 34, class: 'tx-b' }, `Lula ${fPct(D.lulaPct, 2)}`);
+  add(s, 'circle', { cx: W - 9, cy: 24, r: 9, style: 'fill:var(--flavio)' });
+  add(s, 'text', { x: W - 28, y: 34, 'text-anchor': 'end', class: 'tx-b' }, `Flávio ${fPct(D.flavioPct, 2)}`);
+  add(s, 'path', { d: `M${wl},${y}H10Q0,${y} 0,${y + 10}V${y + bh - 10}Q0,${y + bh} 10,${y + bh}H${wl}Z`, style: 'fill:var(--lula)' });
+  add(s, 'path', { d: barPath(wl + gap, y, W - wl - gap, bh, 10), style: 'fill:var(--flavio)' });
+  add(s, 'line', { x1: W / 2, x2: W / 2, y1: y - 10, y2: y + bh + 10, style: 'stroke:var(--ink);stroke-width:3' });
+  add(s, 'text', { x: W / 2, y: y + bh + 40, 'text-anchor': 'middle', class: 'tx-s' }, 'metade dos votos válidos');
+  return s;
+}
+
+// Card 3: urnas encerradas, acumulado minuto a minuto (2º turno)
+function vizClosings(D) {
+  const R = D.R, h = 350, m = { l: 92, r: 6, t: 86, b: 50 };
+  const t0 = 17 * 60, t1 = 17 * 60 + 20, n = t1 - t0 + 1;
+  const iw = W - m.l - m.r, ih = h - m.t - m.b, slot = iw / n, bw = Math.min(28, slot * 0.64);
+  const X = (t) => m.l + slot * (t - t0), Y = (p) => m.t + ih - (ih * p) / 100;
+  const s = svgEl(W, h, `Urnas do 2º turno encerradas até cada minuto, das 17h00 às 17h20: ${fPctFloor(D.closedDec)} até ${hm(D.decEnd)}`);
+  // janela da decisão (imprensa)
+  const b0 = Math.max(t0, D.decStart), b1 = Math.min(t1, D.decEnd);
+  add(s, 'rect', { x: X(b0), y: m.t - 8, width: X(b1 + 1) - X(b0), height: ih + 8, style: 'fill:var(--band)' });
+  add(s, 'text', { x: X(b0) + 4, y: m.t - 50, class: 'tx-b' }, 'decisão divulgada');
+  add(s, 'text', { x: X(b0) + 4, y: m.t - 18, class: 'tx-s' }, D.decHora);
+  for (const p of [0, 50, 100]) {
+    add(s, 'line', { x1: m.l, x2: W - m.r, y1: Y(p), y2: Y(p), style: `stroke:${p ? 'var(--grid)' : 'var(--axis)'};stroke-width:${p ? 1.5 : 2}` });
+    add(s, 'text', { x: m.l - 14, y: Y(p) + 8, 'text-anchor': 'end', class: 'tx-s' }, `${p}%`);
+  }
+  for (let t = t0; t <= t1; t++) {
+    const v = closedBy(R, 't2', t);
+    if (!isNum(v)) continue;
+    const hi = t === D.decEnd || t === 17 * 60 + 10;
+    add(s, 'path', { d: colPath(X(t) + (slot - bw) / 2, Y(0), bw, Y(0) - Y(v), 6), style: `fill:${hi ? 'var(--data)' : 'var(--ctx)'}` });
+    if (hi) add(s, 'text', { x: X(t) + slot / 2, y: Y(v) - 14, 'text-anchor': 'middle', class: 'tx-b' }, fPctFloor(v));
+    if ((t - t0) % 5 === 0) add(s, 'text', { x: t === t1 ? W - m.r : X(t) + slot / 2, y: h - 12, 'text-anchor': t === t1 ? 'end' : 'middle', class: 'tx-s' }, hm(t));
+  }
+  return s;
+}
+
+// Card 4: votos do 2º turno depois das 17h, a cada 5 minutos
+function vizLate(D) {
+  const C = D.R.curvas, m0 = C.min0, h = 258, m = { l: 6, r: 6, t: 14, b: 48 };
+  const t0 = 17 * 60, t1 = 19 * 60 + 10, step = 5, n = (t1 - t0) / step;
+  const bins = Array.from({ length: n }, (_, k) => { let sum = 0; for (let j = 0; j < step; j++) sum += C.t2[t0 + k * step + j - m0] || 0; return sum; });
+  const iw = W - m.l - m.r, ih = h - m.t - m.b, slot = iw / n, bw = Math.min(24, slot * 0.7);
+  const max = Math.max(1, ...bins), X = (k) => m.l + slot * k, Hh = (v) => (v > 0 ? Math.max(3, (ih * v) / max) : 0);
+  const base = m.t + ih;
+  const s = svgEl(W, h, `Votos do 2º turno a cada 5 minutos, das 17h00 às 19h10: ${fPct(D.share1705, 0)} entre 17h00 e 17h05`);
+  // depois das 18h
+  const x18 = X((18 * 60 - t0) / step);
+  add(s, 'rect', { x: x18, y: m.t + 30, width: W - m.r - x18, height: ih - 30, style: 'fill:var(--band)' });
+  add(s, 'text', { x: x18 + 18, y: m.t + 74, class: 'tx-b' }, `depois das 18h: ${fPct(D.share18, 0)}`);
+  add(s, 'text', { x: x18 + 18, y: m.t + 106, class: 'tx-s' }, 'dos votos depois das 17h');
+  add(s, 'line', { x1: m.l, x2: W - m.r, y1: base, y2: base, style: 'stroke:var(--axis);stroke-width:2' });
+  bins.forEach((v, k) => add(s, 'path', { d: colPath(X(k) + (slot - bw) / 2, base, bw, Hh(v), 5), style: 'fill:var(--data)' }));
+  add(s, 'text', { x: X(1) + 22, y: m.t + 38, class: 'tx-xl' }, fPct(D.share1705, 0));
+  add(s, 'text', { x: X(1) + 22, y: m.t + 76, class: 'tx' }, 'entre 17h00 e 17h05:');
+  add(s, 'text', { x: X(1) + 22, y: m.t + 108, class: 'tx' }, D.share1705 >= 50 ? 'a fila das 17h' : 'a fila das 17h e algo mais');
+  for (const t of [17 * 60, 17 * 60 + 30, 18 * 60, 18 * 60 + 30, 19 * 60]) {
+    const x = X((t - t0) / step);
+    add(s, 'line', { x1: x, x2: x, y1: base, y2: base + 8, style: 'stroke:var(--axis);stroke-width:2' });
+    add(s, 'text', { x: Math.max(x, m.l + 36), y: h - 12, 'text-anchor': 'middle', class: 'tx-s' }, hm(t));
+  }
+  return s;
+}
+
+// Card 5: votos por minuto, 1º × 2º turno (mesmas urnas), 16h–19h
+function vizCurves(D) {
+  const C = D.R.curvas, m0 = C.min0, h = 372, m = { l: 112, r: 10, t: 92, b: 50 };
+  const t0 = 16 * 60, t1 = 19 * 60;
+  const s1 = [], s2 = [];
+  for (let t = t0; t <= t1; t++) { s1.push(C.t1[t - m0] || 0); s2.push(C.t2[t - m0] || 0); }
+  const iw = W - m.l - m.r, ih = h - m.t - m.b;
+  const step = niceStep(Math.max(...s1, ...s2) * 1.02, 3), ymax = Math.ceil((Math.max(...s1, ...s2) * 1.02) / step) * step;
+  const X = (t) => m.l + (iw * (t - t0)) / (t1 - t0), Y = (v) => m.t + ih - (ih * v) / ymax;
+  const s = svgEl(W, h, `Votos por minuto das 16h às 19h, 1º e 2º turno nas mesmas urnas. Depois das 17h, o 1º turno teve ${fDec(D.ratio, 0)} vezes mais votos.`);
+  // legenda (2 séries)
+  add(s, 'line', { x1: 0, x2: 36, y1: 16, y2: 16, style: 'stroke:var(--t1);stroke-width:6;stroke-linecap:round' });
+  add(s, 'text', { x: 48, y: 25, class: 'tx' }, '1º turno, sem prorrogação');
+  add(s, 'rect', { x: 470, y: 4, width: 36, height: 24, rx: 4, style: 'fill:var(--data)' });
+  add(s, 'text', { x: 518, y: 25, class: 'tx' }, '2º turno, com prorrogação');
+  for (let v = 0; v <= ymax + 1e-6; v += step) {
+    add(s, 'line', { x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), style: `stroke:${v ? 'var(--grid)' : 'var(--axis)'};stroke-width:${v ? 1.5 : 2}` });
+    add(s, 'text', { x: m.l - 14, y: Y(v) + 8, 'text-anchor': 'end', class: 'tx-s' }, v ? fCompact(v) : '0');
+  }
+  const pts = (arr, from) => arr.map((v, i) => [t0 + i, v]).filter(([t]) => t >= from).map(([t, v]) => `${X(t).toFixed(1)},${Y(v).toFixed(1)}`);
+  // área depois das 17h = votos depois das 17h
+  add(s, 'polygon', { points: [`${X(17 * 60)},${Y(0)}`, ...pts(s1, 17 * 60), `${X(t1)},${Y(0)}`].join(' '), style: 'fill:var(--t1);opacity:.18' });
+  add(s, 'polygon', { points: [`${X(17 * 60)},${Y(0)}`, ...pts(s2, 17 * 60), `${X(t1)},${Y(0)}`].join(' '), style: 'fill:var(--data)' });
+  add(s, 'polyline', { points: pts(s2, t0).join(' '), style: 'fill:none;stroke:var(--data);stroke-width:5;stroke-linejoin:round;stroke-linecap:round' });
+  add(s, 'polyline', { points: pts(s1, t0).join(' '), style: 'fill:none;stroke:var(--t1);stroke-width:5;stroke-linejoin:round;stroke-linecap:round' });
+  add(s, 'line', { x1: X(17 * 60), x2: X(17 * 60), y1: m.t - 6, y2: Y(0), style: 'stroke:var(--ink);stroke-width:3' });
+  add(s, 'text', { x: X(17 * 60) + 18, y: m.t + 30, class: 'tx-b' }, 'depois das 17h');
+  add(s, 'text', { x: X(17 * 60) + 18, y: m.t + 62, class: 'tx-s' }, 'área colorida: votos depois das 17h');
+  add(s, 'text', { x: 0, y: m.t - 26, class: 'tx-s' }, 'votos por minuto');
+  for (const t of [16 * 60, 17 * 60, 18 * 60, 19 * 60]) add(s, 'text', { x: X(t), y: h - 12, 'text-anchor': t === t0 ? 'start' : t === t1 ? 'end' : 'middle', class: 'tx-s' }, hm(t));
+  return s;
+}
+
+// Card 6: a régua, mesma escala (dado sobre a margem de Lula: vermelho; votos tardios: neutro)
+function vizRuler(D) {
+  const rows = [
+    { lab: 'Diferença final, Lula à frente', v: D.margin, fill: 'var(--lula)' },
+    { lab: `Votos depois das 17h, tirados de Lula${D.extrap > 0 ? ' (com folga)' : ''}`, v: D.removed, fill: 'var(--data)', min: 6 },
+    D.worst > 0 ? { lab: 'Diferença no pior caso, Lula à frente', v: D.worst, fill: 'var(--lula)' }
+                : { lab: 'Diferença no pior caso, Flávio à frente', v: Math.abs(D.worst), fill: 'var(--flavio)' },
+  ];
+  const max = Math.max(...rows.map((r) => r.v || 0), 1), rh = 106, bh = 40, h = rows.length * rh - 20;
+  const s = svgEl(W, h, rows.map((r) => `${r.lab}: ${fInt(r.v)}`).join('; '));
+  rows.forEach((r, i) => {
+    const y = i * rh;
+    add(s, 'text', { x: 0, y: y + 30, class: 'tx' }, r.lab);
+    add(s, 'text', { x: W, y: y + 30, 'text-anchor': 'end', class: 'tx-b' }, fInt(r.v));
+    add(s, 'rect', { x: 0, y: y + 46, width: W, height: bh, rx: 8, style: 'fill:var(--track)' });
+    add(s, 'path', { d: barPath(0, y + 46, Math.max(r.min || 0, (W * (r.v || 0)) / max), bh, 8), style: `fill:${r.fill}` });
+  });
+  return s;
+}
+
+/* =========================== os 7 cards =========================== */
+function cardDefs(D) {
+  const v = verdict(D), spd = D.spd;
+  const per10k = isNum(D.per10k) ? (D.per10k < 1 ? 'menos de 1 em cada 10 mil' : `cerca de ${Math.round(D.per10k)} em cada 10 mil`) : '';
+  const shortTl = (e) => {
+    const t = e.texto || '';
+    const rules = [
+      [/Lula.*pede prorroga.*Bahia/i, 'Campanha de Lula pede mais tempo na Bahia (falta de ônibus)'],
+      [/amplia/i, 'Campanha de Lula amplia o pedido para todos os estados'],
+      [/Flávio.*pede/i, 'Campanha de Flávio pede mais tempo em 19 cidades de SP, PR e SC (chuva, falta de energia)'],
+      [/STF.*nacional|vai ao STF/i, 'Campanha de Lula leva o pedido ao STF, para todo o país'],
+    ];
+    const hit = rules.find(([re]) => re.test(t));
+    return hit ? hit[1] : t;
+  };
+  const who = (t) => (/Flávio|\(PL\)/.test(t) ? 'flavio' : /Lula|\bPT\b/.test(t) ? 'lula' : 'neutro');
+  const tlItems = D.tl.filter((e) => e !== D.dec);
+  const tlFontes = joinPt([...new Set(D.tl.flatMap((e) => fontes(e.fonte)))]);
+  const tseTxt = D.tse && isNum(D.tse.votos_apos_17h) ? `${fInt(D.tse.votos_apos_17h)}` : '—';
+  const worstOk = isNum(D.worst) && D.worst > 0;
+  const title3 = D.closedDec >= 50 ? 'Quando a decisão saiu, a maioria das urnas já tinha fechado' : 'Quando a decisão saiu, quantas urnas já tinham fechado?';
+  const rt = ratioTxt(D), fq = filaQ(D);
+
+  return [
+    { // 1 · o gancho
+      kicker: 'A pergunta',
+      build: (m) => {
+        m.append(el('h1', 'title', 'A prorrogação da votação até as 19h decidiu a eleição?'));
+        m.append(el('div', 'hero fit', fInt(D.margin)));
+        m.append(el('p', 'hero-sub', 'votos separaram Lula e Flávio no 2º turno'));
+        const f = el('div', 'viz'); f.append(vizResult(D)); m.append(f);
+        m.append(el('p', 'body', 'Cada urna registra a hora de cada voto. Conferimos esses registros para responder com números.'));
+      },
+      src: `Resultado: <b>TSE</b> (boletins de urna). Registros: ${SRC_LOGS}.`,
+      swipe: true,
+      alt: `Card 1 de 7. Pergunta: a prorrogação da votação até as 19h decidiu a eleição? Em destaque, ${fInt(D.margin)}: os votos que separaram Lula e Flávio no 2º turno. Barra do resultado: Lula ${fPct(D.lulaPct, 2)} dos válidos, Flávio ${fPct(D.flavioPct, 2)}. Texto: cada urna registra a hora de cada voto; conferimos esses registros. Fonte: TSE, boletins e logs de urna; análise própria.`,
+    },
+    { // 2 · o que aconteceu
+      kicker: 'O que aconteceu',
+      build: (m) => {
+        m.append(el('h1', 'title', 'As duas campanhas pediram mais tempo'));
+        const ol = el('ol', 'tl');
+        for (const e of tlItems) {
+          const li = el('li');
+          li.append(el('span', 'h', esc(e.hora)), el('span', `d ${who(e.texto)}`), el('span', 't', esc(shortTl(e))));
+          ol.append(li);
+        }
+        m.append(ol);
+        const d = el('div', 'dec');
+        d.append(el('div', 'lab', 'decisão'), el('span', 'd'), el('div', 'hero fit', esc(D.decHora).replace(/–/g, '\u2009–\u2009')));
+        d.append(el('div', 'lab', ''), el('span', ''), el('p', 'hero-sub', 'o STF estende a votação até as 19h, mas só onde a urna ainda estava aberta'));
+        m.append(d);
+        m.append(el('p', 'body', 'E vale a regra de sempre: quem já estava na fila às 17h vota de qualquer jeito.'));
+      },
+      src: `Linha do tempo de 25/10/2026, segundo <b>${esc(tlFontes || 'a imprensa')}</b>. Horários aproximados.`,
+      alt: `Card 2 de 7. Título: as duas campanhas pediram mais tempo. Linha do tempo de 25/10, segundo ${tlFontes}: ${tlItems.map((e) => `${e.hora}, ${shortTl(e).replace(/^C/, 'c')}`).join('; ')}. Em destaque, ${D.decHora}: o STF estende a votação até as 19h, só onde a urna ainda estava aberta. Texto: vale a regra de sempre, quem já estava na fila às 17h vota de qualquer jeito.`,
+    },
+    { // 3 · o relógio das 17h
+      kicker: 'O relógio das 17h',
+      build: (m) => {
+        m.append(el('h1', 'title', title3));
+        m.append(el('div', 'hero fit', fPctFloor(D.closedDec)));
+        m.append(el('p', 'hero-sub', `das urnas encerraram até ${hm(D.decEnd)}`));
+        const f = el('div', 'viz'); f.append(vizClosings(D)); m.append(f);
+        m.append(el('p', 'body', `A prorrogação só valia onde a urna seguia aberta. Até 17h10, ${fPctFloor(D.closed1710)} já tinham fechado.`));
+      },
+      src: `${SRC_LOGS}. Hora da decisão segundo <b>${esc(decSources(D) || 'a imprensa')}</b>.${prevLine(D)}`,
+      alt: `Card 3 de 7. Título: ${title3.charAt(0).toLowerCase() + title3.slice(1)}${title3.endsWith('?') ? '' : '.'} Em destaque, ${fPctFloor(D.closedDec)} das urnas encerraram até ${hm(D.decEnd)}. Gráfico de colunas com a porcentagem acumulada de urnas encerradas, minuto a minuto, das 17h00 às 17h20, com a faixa da decisão (${D.decHora}). Até 17h10, ${fPctFloor(D.closed1710)} já tinham fechado. Fonte: logs de urna do TSE, análise própria.`,
+    },
+    { // 4 · quantos votaram depois das 17h
+      kicker: 'Depois das 17h',
+      build: (m) => {
+        m.append(el('h1', 'title', 'Quantos votaram depois das 17h?'));
+        m.append(el('div', 'hero fit', fPctSmall(D.pct17)));
+        m.append(el('p', 'hero-sub', `dos votos: ${per10k}`));
+        const f = el('div', 'viz'); f.append(vizLate(D)); m.append(f);
+        m.append(el('p', 'body', `${cap(fq)} ${plural(D) ? 'eram' : 'era'} a fila de quem já estava no local às 17h, que vota com ou sem prorrogação.`));
+        const ck = el('div', 'check');
+        ck.append(el('div', null, `<b>${fInt(D.c.tardios)}</b>${D.preview ? `nos logs, com ${fPct(D.cov, 0)} dos votos` : 'votos depois das 17h nos logs'}`));
+        ck.append(el('div', null, `<b>${tseTxt}</b>no balanço do TSE${D.tseOutlet ? ` (via ${esc(D.tseOutlet)})` : ''}`));
+        m.append(ck);
+      },
+      src: `${SRC_LOGS}. Balanço do TSE de 27/10${D.tseOutlet ? `, segundo <b>${esc(D.tseOutlet)}</b>` : ''}.${prevLine(D)}`,
+      alt: `Card 4 de 7. Título: quantos votaram depois das 17h? Em destaque, ${fPctSmall(D.pct17)} dos votos, ${per10k}. Gráfico de colunas dos votos a cada 5 minutos, das 17h às 19h10: ${fPct(D.share1705, 0)} foram entre 17h00 e 17h05, a fila das 17h; depois das 18h, ${fPct(D.share18, 0)}. Texto: ${fq} ${plural(D) ? 'eram' : 'era'} a fila de quem já estava no local às 17h, que vota com ou sem prorrogação. Conferência: ${fInt(D.c.tardios)} votos depois das 17h nos logs${D.preview ? ` (${fPct(D.cov, 0)} dos votos conferidos)` : ''}; ${tseTxt} no balanço do TSE${D.tseOutlet ? `, via ${D.tseOutlet}` : ''}.`,
+    },
+    { // 5 · o mesmo relógio no 1º turno
+      kicker: 'O 1º turno',
+      build: (m) => {
+        m.append(el('h1', 'title', rt.title));
+        m.append(el('div', 'hero fit', rt.hero));
+        m.append(el('p', 'hero-sub', rt.sub));
+        const f = el('div', 'viz'); f.append(vizCurves(D)); m.append(f);
+        m.append(el('p', 'body', isNum(D.spd.mediana_1t_s)
+          ? `${rt.more ? 'É a fila normal. ' : ''}No 1º turno, com mais cargos, o eleitor típico levou ${D.spd.mediana_1t_s} s para votar; no 2º, ${D.spd.mediana_s} s.`
+          : 'No 1º turno, com mais cargos, cada eleitor leva mais tempo para votar.'));
+      },
+      src: `${SRC_LOGS}. O log do 2º turno traz também o 1º turno da mesma urna.${prevLine(D)}`,
+      alt: `Card 5 de 7. Título: ${rt.title.charAt(0).toLowerCase() + rt.title.slice(1)}. Em destaque, ${rt.hero.replace('×', ' vezes')} ${rt.sub}. Gráfico de linhas dos votos por minuto, das 16h às 19h, 1º e 2º turno; a área depois das 17h mostra os votos depois das 17h em cada turno. ${isNum(D.spd.mediana_1t_s) ? `No 1º turno, o eleitor típico levou ${D.spd.mediana_1t_s} s para votar; no 2º, ${D.spd.mediana_s} s.` : ''} Fonte: logs de urna do TSE, análise própria.`,
+    },
+    { // 6 · o pior caso
+      kicker: 'O pior caso',
+      build: (m) => {
+        m.append(el('h1', 'title', 'E se todo voto depois das 17h tivesse sido de Lula?'));
+        m.append(el('div', 'hero fit', fInt(Math.abs(D.worst))));
+        m.append(el('p', 'hero-sub', worstOk ? 'votos de vantagem de Lula, mesmo assim' : 'votos de vantagem para Flávio, nesse caso'));
+        const f = el('div', 'viz'); f.append(vizRuler(D)); m.append(f);
+        m.append(el('p', 'body', 'O voto é secreto: o log mostra quando cada pessoa votou, nunca em quem. Por isso, o pior caso.'));
+        m.append(el('p', 'note', `Urna a urna, tiramos de Lula os votos depois das 17h (até o total dele na urna).${D.extrap > 0 ? ` Urnas sem log entram com folga: ${fInt(D.extrap)} votos.` : ''}`));
+      },
+      src: `Resultado: <b>TSE</b> (boletins de urna). ${SRC_LOGS}.${prevLine(D)}`,
+      alt: `Card 6 de 7. Título: e se todo voto depois das 17h tivesse sido de Lula? Em destaque, ${fInt(Math.abs(D.worst))}: ${worstOk ? 'a vantagem de Lula, mesmo tirando dele todos esses votos' : 'a vantagem para Flávio, tirando de Lula todos esses votos'}. Régua na mesma escala: diferença final ${fInt(D.margin)}; votos depois das 17h tirados de Lula${D.extrap > 0 ? ', com folga para urnas sem log,' : ''} ${fInt(D.removed)}; diferença no pior caso ${fInt(Math.abs(D.worst))}. O voto é secreto: o log mostra quando cada pessoa votou, nunca em quem.`,
+    },
+    { // 7 · conclusão e "confira você mesmo"
+      kicker: 'Conclusão',
+      build: (m) => {
+        m.append(el('h1', 'title', esc(v.title)));
+        m.append(el('div', 'hero fit', fInt(D.urnas)));
+        m.append(el('p', 'hero-sub', 'urnas com o log conferido, voto a voto'));
+        m.append(el('p', 'body', esc(v.body)));
+        const b = el('div', 'box');
+        b.append(el('h2', null, 'Confira você mesmo'));
+        b.append(el('p', null, '<b>Onde:</b> o log de cada urna é público no site de resultados do TSE, junto com o boletim de urna.'));
+        b.append(el('p', null, '<b>Método:</b> em cada log, contamos os votos a partir das 17h00 (Brasília) e comparamos, urna a urna, com a diferença final. O log mostra quando, nunca em quem.'));
+        m.append(b);
+      },
+      src: `${SRC_LOGS}. Resultado: <b>TSE</b>. Fatos do dia: imprensa, com a fonte em cada card.${prevLine(D)}`,
+      alt: `Card 7 de 7. Título: ${v.title.charAt(0).toLowerCase() + v.title.slice(1)}. Em destaque, ${fInt(D.urnas)} urnas com o log conferido, voto a voto. Texto: ${v.body} Confira você mesmo: o log de cada urna é público no site de resultados do TSE. Método: em cada log, contamos os votos a partir das 17h00 (Brasília) e comparamos, urna a urna, com a diferença final. O log mostra quando, nunca em quem.`,
+    },
+  ];
+}
+
+/* =========================== legenda e fio (data/social/textos.md) =========================== */
+function buildTextos(D) {
+  const v = verdict(D), defs = cardDefs(D), worstOk = isNum(D.worst) && D.worst > 0, rt = ratioTxt(D), fq = filaQ(D);
+  const so = D.pct17 < 1 ? 'Só ' : '';
+  const per10k = isNum(D.per10k) ? (D.per10k < 1 ? 'menos de 1 em cada 10 mil' : `cerca de ${Math.round(D.per10k)} em cada 10 mil`) : '';
+  const tl = joinPt([...new Set(D.tl.flatMap((e) => fontes(e.fonte)))]);
+  const spd = isNum(D.spd.mediana_1t_s) ? ` No 1º turno, o eleitor típico levou ${D.spd.mediana_1t_s} s para votar; no 2º, ${D.spd.mediana_s} s.` : '';
+  const fio = [
+    `A prorrogação da votação até as 19h decidiu o 2º turno? Lula venceu por ${fInt(D.margin)} votos. Cada urna registra a hora de cada voto, e esses registros são públicos. Fomos conferir.`,
+    `O que aconteceu, segundo ${tl}: as duas campanhas pediram mais tempo durante a tarde. A decisão que estendeu a votação até as 19h saiu por volta de ${D.decHora.replace('≈', '')} e valia só onde a urna ainda estava aberta.`,
+    `Até ${hm(D.decEnd)}, ${fPctFloor(D.closedDec)} das urnas já tinham encerrado. Até 17h10, ${fPctFloor(D.closed1710)}. A prorrogação só alcançava as que seguiam abertas.`,
+    `${so}${fPctSmall(D.pct17)} dos votos foram dados depois das 17h, ${per10k}. E ${fPct(D.share1705, 0)} deles entre 17h00 e 17h05: a fila de quem já estava no local, que pela regra vota de qualquer jeito.`,
+    rt.more ? `No 1º turno não houve prorrogação, e as mesmas urnas tiveram ${rt.hero.replace('×', '')} vezes mais votos depois das 17h. É a fila normal.${spd}`
+            : `No 1º turno não houve prorrogação, e as mesmas urnas tiveram menos votos depois das 17h que no 2º (${rt.hero}).${spd}`,
+    `O voto é secreto: o log mostra quando cada pessoa votou, nunca em quem. Então testamos o pior caso: tirar de Lula todo voto dado depois das 17h. ${worstOk ? `Ele seguiria à frente por ${fInt(D.worst)} votos.` : `Flávio passaria à frente por ${fInt(Math.abs(D.worst))} votos.`}`,
+    `${v.title}${D.preview ? ` (${fPct(D.cov, 0)} dos votos conferidos)` : ''}. Confira: o log de cada urna é público no site de resultados do TSE. Método: contamos os votos a partir das 17h00 (Brasília) em cada log e comparamos com a diferença, urna a urna.`,
+  ].map((t, i) => `${t} (${i + 1}/7)`);
+  const legenda = [
+    `A prorrogação da votação até as 19h decidiu o 2º turno? Conferimos a hora de cada voto nos logs das urnas, que são públicos.`,
+    '',
+    'O que os registros mostram:',
+    `• Até ${hm(D.decEnd)}, quando a decisão saiu, ${fPctFloor(D.closedDec)} das urnas já tinham encerrado.`,
+    `• ${so}${fPctSmall(D.pct17)} dos votos foram depois das 17h, e ${fPct(D.share1705, 0)} deles entre 17h00 e 17h05: a fila de quem já estava lá.`,
+    rt.more ? `• No 1º turno, sem prorrogação, as mesmas urnas tiveram ${rt.hero.replace('×', '')} vezes mais votos depois das 17h.`
+            : `• No 1º turno, sem prorrogação, as mesmas urnas tiveram menos votos depois das 17h que no 2º.`,
+    worstOk ? `• Mesmo tirando de Lula todo voto dado depois das 17h, ele segue à frente por ${fInt(D.worst)} votos.`
+            : `• Tirando de Lula todo voto dado depois das 17h, Flávio passaria à frente por ${fInt(Math.abs(D.worst))} votos.`,
+    '',
+    `${v.title}.${D.preview ? ` (Prévia: ${fPct(D.cov, 0)} dos votos conferidos.)` : ''} O voto é secreto: o log mostra quando cada pessoa votou, nunca em quem.`,
+    '',
+    `Fontes: logs e boletins de urna do TSE (dados abertos), análise própria. Pedidos das campanhas e horário da decisão: ${tl}. Balanço do TSE${D.tse ? ` (${fInt(D.tse.votos_apos_17h)} votos depois das 17h)` : ''}: ${D.tseOutlet ? `via ${D.tseOutlet}` : 'imprensa'}.`,
+    'Método: em cada log, contamos os votos registrados a partir das 17h00 (hora de Brasília) e comparamos com a diferença final, urna a urna.',
+  ].join('\n');
+  const L = [];
+  L.push('# Cards da prorrogação: textos para publicar', '');
+  L.push(`Gerado por \`site/tools/render_cards.py\` a partir de \`site/data/prorrog/resumo.json\` (${D.geradoEm || '?'}) e \`historia.json\`. Não edite os números à mão: rode o script de novo.`, '');
+  if (D.preview) L.push(`> **PRÉVIA, NÃO PUBLICAR:** só ${fPct(D.cov, 1)} dos votos estavam conferidos nos logs. Rode o script de novo com os dados finais (a tarja some a partir de 95%).`, '');
+  L.push('## Legenda do carrossel', '', '```text', legenda, '```', '');
+  L.push('## Texto alternativo (alt text)', '');
+  defs.forEach((d, i) => L.push(`**Card ${i + 1} · ${d.kicker}.** ${d.alt.replace(/\s+/g, ' ').trim()}`, ''));
+  L.push('## Fio para X / Threads (7 posts)', '');
+  fio.forEach((t, i) => L.push(`${i + 1}. ${t}  `, `   _${t.length} caracteres${t.length > 280 ? ' · ACIMA DE 280' : ''}_`, ''));
+  L.push('## Ressalvas de fonte', '');
+  L.push(`- Horários dos pedidos e da decisão: reportagens (${tl}), não documentos oficiais.`);
+  if (D.tse) L.push(`- Balanço do TSE (${fInt(D.tse.votos_apos_17h)} votos depois das 17h): ${D.tseOutlet ? `via ${D.tseOutlet}` : 'imprensa'}; a nota no site do TSE não abriu (HTTP 403).`);
+  L.push('- O voto é secreto: nenhum número aqui diz em quem os eleitores tardios votaram. O "pior caso" é uma hipótese extrema, não uma estimativa.');
+  return { md: L.join('\n') + '\n', fio, legenda };
+}
+
+/* =========================== montagem =========================== */
+function clockIcon() {
+  const s = svgEl(34, 34, '');
+  s.setAttribute('aria-hidden', 'true');
+  add(s, 'circle', { cx: 17, cy: 17, r: 14.5, style: 'fill:none;stroke:var(--ink-2);stroke-width:3' });
+  add(s, 'line', { x1: 17, y1: 17, x2: 17, y2: 6.5, style: 'stroke:var(--ink-2);stroke-width:3;stroke-linecap:round' });
+  add(s, 'line', { x1: 17, y1: 17, x2: 21.5, y2: 24.8, style: 'stroke:var(--ink-2);stroke-width:3.4;stroke-linecap:round' }); // 17h
+  return s;
+}
+
+function fitHeroes(root) {
+  for (const e of root.querySelectorAll('.fit')) {
+    let size = parseFloat(getComputedStyle(e).fontSize);
+    while (e.scrollWidth > e.clientWidth + 1 && size > 60) { size -= 4; e.style.fontSize = `${size}px`; }
+  }
+}
+
+function checkLayout(card) {
+  const probs = [];
+  const main = card.querySelector('main');
+  if (main.scrollHeight > main.clientHeight + 1) probs.push(`conteúdo passa da área útil em ${main.scrollHeight - main.clientHeight}px`);
+  const st = card.querySelector('.stack');
+  if (st && st.scrollHeight > st.clientHeight + 1) probs.push(`conteúdo passa da área útil em ${st.scrollHeight - st.clientHeight}px`);
+  if (main.scrollWidth > main.clientWidth + 1) probs.push(`conteúdo mais largo que a área útil em ${main.scrollWidth - main.clientWidth}px`);
+  for (const e of card.querySelectorAll('.fit')) if (e.scrollWidth > e.clientWidth + 1) probs.push(`número grande cortado: ${e.textContent}`);
+  const cr = card.getBoundingClientRect();
+  for (const e of card.querySelectorAll('h1, p, .hero, .src, .pill, .count, li, .check div, .box')) {
+    const r = e.getBoundingClientRect();
+    if (r.right > cr.right - 40 || r.left < cr.left + 40 || r.bottom > cr.bottom - 20) probs.push(`fora da margem: ${e.className || e.tagName} "${e.textContent.slice(0, 40)}"`);
+  }
+  for (const s of card.querySelectorAll('.viz svg')) {
+    const vb = s.viewBox.baseVal;
+    for (const t of s.querySelectorAll('text')) {
+      const b = t.getBBox();
+      if (b.x < -1 || b.y < -1 || b.x + b.width > vb.width + 1 || b.y + b.height > vb.height + 1) probs.push(`texto do gráfico vaza: "${t.textContent}"`);
+    }
+  }
+  return probs;
+}
+
+async function main() {
+  const card = document.getElementById('card');
+  const q = new URLSearchParams(location.search);
+  const n = Math.min(N_CARDS, Math.max(1, parseInt(q.get('n') || '1', 10) || 1));
+  window.__card = { n, done: false, ok: false, problems: [] };
+  try {
+    // fontes: espera o Inter (com teto), senão segue com a do sistema
+    await Promise.race([Promise.all(['400 36px Inter', '500 36px Inter', '600 36px Inter', '700 36px Inter', '800 200px Inter'].map((f) => document.fonts.load(f))),
+                        new Promise((r) => setTimeout(r, 4000))]);
+    const [R, H] = await Promise.all([getJSON('../data/prorrog/resumo.json'), getJSON('../data/prorrog/historia.json')]);
+    window.__R = R; window.__H = H;
+    await renderCard(n, R, H);
+  } catch (err) {
+    card.replaceChildren(el('div', 'err', `Erro ao montar o card: ${esc(err.message)}`));
+    window.__card.problems.push(String(err && err.stack || err));
+  } finally {
+    window.__card.done = true;
+  }
+}
+
+/** Monta o card n com os dados dados. Exposto para testar as variantes de conclusão com dados alterados no console. */
+async function renderCard(n, R, H) {
+  const card = document.getElementById('card');
+  const D = derive(R, H);
+  const def = cardDefs(D)[n - 1];
+  const top = el('header', 'top');
+  const brand = el('div', 'brand'); brand.append(clockIcon(), el('span', null, 'O relógio das urnas'));
+  const tr = el('div', 'top-r');
+  if (D.preview) tr.append(el('span', 'pill', 'PRÉVIA · dados parciais'));
+  tr.append(el('span', 'count', `${n}/${N_CARDS}`));
+  top.append(brand, tr);
+  const m = el('main');
+  def.build(m);
+  const stack = el('div', 'stack');
+  stack.append(...[...m.children].slice(1));
+  m.append(stack);
+  const foot = el('footer');
+  foot.append(el('div', 'src', `<b>Fontes:</b> ${def.src}`));
+  if (def.swipe) foot.append(el('div', 'swipe', 'Deslize →'));
+  card.replaceChildren(top, m, foot);
+  document.title = `Card ${n}/7 · ${def.kicker}`;
+  await document.fonts.ready;
+  fitHeroes(card);
+  const probs = checkLayout(card);
+  const T = buildTextos(D);
+  Object.assign(window.__card, { ok: probs.length === 0, problems: probs, preview: D.preview, cov: D.cov, kicker: def.kicker,
+                                 alt: def.alt, verdict: verdict(D).key, font: document.fonts.check('800 200px Inter') ? 'Inter' : 'sistema' });
+  window.__textos = T;
+  window.__D = D;
+  return window.__card;
+}
+window.__renderCard = renderCard;
+main();
+</script>
+</body>
+</html>

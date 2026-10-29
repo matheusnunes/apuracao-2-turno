@@ -1116,7 +1116,7 @@ function prCard() {
   const fx = R.fatos;
   if (fx?.tse) {
     const t = el('div', 'lg-note'); t.dataset.drop = '3';
-    t.append(`Conferência: o TSE informou ${fInt(fx.tse.votos_apos_17h)} votos depois das 17h e ${fInt(fx.tse.secoes_abertas_apos_17h10)} seções abertas após 17h10; para o presidente do TSE, “${fx.tse.avaliacao}”. Fonte: ${fx.tse.fonte}${fx.tse.confirmado ? '' : ' (a confirmar)'}.`);
+    t.append(`Conferência: o TSE informou ${fInt(fx.tse.votos_apos_17h)} votos depois das 17h e ${fInt(fx.tse.secoes_abertas_apos_17h10)} seções abertas após 17h10 (${fInt(fx.tse.secoes_abertas_apos_17h)} após 17h). Fonte: ${fx.tse.fonte}${fx.tse.confirmado ? '' : ' (a confirmar)'}. Para o presidente do TSE, “${fx.tse.avaliacao}” (${fx.tse.avaliacao_fonte || fx.tse.fonte}).`);
     card.append(t);
   }
   if (fx?.linha_do_tempo?.length) {
