@@ -147,7 +147,7 @@ function statBlock(t, s) {
   row('Depois das 17h', `${fInt(s.late)} (${fPct(100 * s.late / s.votes.length, 1)})`);
   if (s.late18) row('Depois das 18h', fInt(s.late18));
   if (s.allp != null) row('“Todos os presentes votaram?”', s.allp ? 'sim' : 'não');
-  if (s.fast != null) row('Voto mais rápido · mediana', `${s.fast} s · ${s.med} s`);
+  if (s.fast != null) row('Tempo para votar: mais rápido · típico', `${s.fast} s · ${s.med} s`);
   return b;
 }
 
